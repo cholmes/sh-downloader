@@ -26,7 +26,7 @@ logger.addHandler(handler)
 @click.version_option()
 @click.option(
     "--debug/--no-debug",
-    default=True,  # Default to True for now
+    default=False,  # Default to True for now
     help="Enable debug logging",
 )
 @click.pass_context
@@ -412,8 +412,12 @@ def search(
     "--time-difference",
     "-t",
     type=int,
-    default=1,
-    help="Minimum days between downloaded images (default: 1)",
+    help="Minimum days between downloaded images (default: None - download all images)",
+)
+@click.option(
+    "--all-dates/--filter-dates",
+    default=False,
+    help="Download all available dates without filtering (overrides --time-difference)",
 )
 @click.option(
     "--filename-template",
@@ -436,7 +440,7 @@ def search(
 @click.option(
     "--nodata",
     type=float,
-    help="Value to use for nodata pixels in the output GeoTIFFs",
+    help="Value to use for nodata pixels in the output GeoTIFF",
 )
 @click.option(
     "--scale",
@@ -452,7 +456,8 @@ def byoc(
     bbox: str,
     output_dir: Optional[str],
     size: str,
-    time_difference: int,
+    time_difference: Optional[int],
+    all_dates: bool,
     filename_template: Optional[str],
     evalscript_file: Optional[str],
     bands: Optional[str],
@@ -513,6 +518,14 @@ def byoc(
     if auto_discover_bands and not evalscript and not specified_bands:
         click.echo("Auto-discovering bands in BYOC collection...")
     
+    # Determine if we should filter dates
+    effective_time_difference = None if all_dates else time_difference
+    
+    if all_dates:
+        click.echo("Downloading all available dates without filtering")
+    elif time_difference is not None:
+        click.echo(f"Using time difference filter: {time_difference} days")
+    
     # Get available dates
     click.echo(f"Searching for available dates in BYOC collection {byoc_id}...")
     available_dates = api.get_available_dates(
@@ -520,7 +533,7 @@ def byoc(
         byoc_id=byoc_id,
         time_interval=(start_date, end_date),
         bbox=bbox_tuple,
-        time_difference_days=time_difference
+        time_difference_days=effective_time_difference
     )
     
     if not available_dates:
@@ -539,7 +552,7 @@ def byoc(
         time_interval=(start_date, end_date),
         output_dir=output_dir,
         size=size_tuple,
-        time_difference_days=time_difference,
+        time_difference_days=effective_time_difference,
         filename_template=filename_template,
         evalscript=evalscript,
         auto_discover_bands=auto_discover_bands,

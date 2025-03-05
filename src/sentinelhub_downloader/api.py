@@ -22,6 +22,8 @@ from tqdm import tqdm
 # Try to import GDAL
 try:
     from osgeo import gdal
+    # Set GDAL to not use exceptions by default (maintain backward compatibility)
+    gdal.DontUseExceptions()
     GDAL_AVAILABLE = True
 except ImportError:
     GDAL_AVAILABLE = False
@@ -126,7 +128,7 @@ class SentinelHubAPI:
         time_interval: Tuple[datetime.datetime, datetime.datetime],
         bbox: Tuple[float, float, float, float],
         byoc_id: Optional[str] = None,
-        time_difference_days: int = 1
+        time_difference_days: Optional[int] = None
     ) -> List[datetime.datetime]:
         """
         Get available dates for a collection within a time interval and bounding box.
@@ -136,7 +138,7 @@ class SentinelHubAPI:
             time_interval: A tuple of (start_time, end_time) as datetime objects
             bbox: Bounding box as (min_lon, min_lat, max_lon, max_lat)
             byoc_id: The BYOC collection ID (required if collection is 'byoc')
-            time_difference_days: Minimum days between returned dates
+            time_difference_days: Minimum days between returned dates (if None, return all dates)
             
         Returns:
             List of available dates as datetime objects
@@ -147,6 +149,8 @@ class SentinelHubAPI:
             logger.debug(f"Bounding box: {bbox}")
             if byoc_id:
                 logger.debug(f"BYOC ID: {byoc_id}")
+            if time_difference_days is not None:
+                logger.debug(f"Time difference filter: {time_difference_days} days")
         
         # Get the data collection
         data_collection = self._get_data_collection(collection, byoc_id)
@@ -195,16 +199,26 @@ class SentinelHubAPI:
                     logger.warning(f"Item: {item}")
                 continue
         
-        # Filter timestamps based on time difference
-        time_difference = datetime.timedelta(days=time_difference_days)
-        filtered_dates = filter_times(timestamps, time_difference=time_difference)
+        # Sort timestamps chronologically
+        timestamps.sort()
         
-        if self.debug:
-            logger.debug(f"Filtered to {len(filtered_dates)} dates with minimum {time_difference_days} day(s) difference")
-            if filtered_dates:
-                logger.debug(f"Available dates: {[d.strftime('%Y-%m-%d') for d in filtered_dates]}")
-        
-        return filtered_dates
+        # Filter timestamps based on time difference if specified
+        if time_difference_days is not None:
+            time_difference = datetime.timedelta(days=time_difference_days)
+            filtered_dates = filter_times(timestamps, time_difference=time_difference)
+            
+            if self.debug:
+                logger.debug(f"Filtered to {len(filtered_dates)} dates with minimum {time_difference_days} day(s) difference")
+                if filtered_dates:
+                    logger.debug(f"Available dates: {[d.strftime('%Y-%m-%d') for d in filtered_dates]}")
+            
+            return filtered_dates
+        else:
+            if self.debug:
+                logger.debug(f"Returning all {len(timestamps)} dates without filtering")
+                logger.debug(f"Available dates: {[d.strftime('%Y-%m-%d') for d in timestamps]}")
+            
+            return timestamps
 
     def search_catalog(
         self,
@@ -566,14 +580,14 @@ class SentinelHubAPI:
                     return str(output_path)
                 
                 if self.debug:
-                    logger.debug("Converting to Cloud Optimized GeoTIFF and adding metadata")
+                    logger.debug("Adding metadata and converting to Cloud Optimized GeoTIFF")
                 
                 # Force Python garbage collection to ensure file handles are released
                 import gc
                 gc.collect()
                 
-                # First, add statistics to the temporary file
-                ds_temp = gdal.Open(temp_path, gdal.GA_Update)
+                # First, add statistics and scale to the temporary file
+                ds_temp = gdal.OpenEx(temp_path, gdal.GA_Update)
                 if ds_temp is not None:
                     if self.debug:
                         logger.debug("Adding statistics to temporary file")
@@ -606,21 +620,37 @@ class SentinelHubAPI:
                 translate_options = gdal.TranslateOptions(
                     format="GTiff",
                     creationOptions=[
-                        "COMPRESS=DEFLATE",
+                        "COMPRESS=LZW",  # Use LZW compression instead of DEFLATE
                         "PREDICTOR=2",
                         "TILED=YES",
                         "BLOCKXSIZE=256",
                         "BLOCKYSIZE=256",
-                        "COPY_SRC_OVERVIEWS=YES"
                     ],
                     metadataOptions=["COPY_SRC_METADATA=YES"]  # Ensure metadata is copied
                 )
                 
-                # Convert to COG
+                # Convert to GeoTIFF with the metadata
                 gdal.Translate(str(output_path), temp_path, options=translate_options)
                 
                 # Remove the temporary file
                 os.remove(temp_path)
+                
+                # Now add overviews to make it a proper COG
+                if self.debug:
+                    logger.debug("Adding overviews to create a proper COG")
+                
+                # Open the output file to add overviews
+                ds_out = gdal.Open(str(output_path), gdal.GA_Update)
+                if ds_out is not None:
+                    # Add overviews
+                    overview_list = [2, 4, 8, 16]
+                    ds_out.BuildOverviews("NEAREST", overview_list)
+                    
+                    # Close the dataset
+                    ds_out = None
+                    
+                    if self.debug:
+                        logger.debug(f"Added overviews at factors: {overview_list}")
                 
                 # Verify the metadata was set correctly
                 if self.debug:
@@ -635,56 +665,6 @@ class SentinelHubAPI:
                             logger.debug(f"Band {band_number}: Scale={scale}, Offset={offset}")
                             logger.debug(f"Band {band_number} metadata: {metadata}")
                         ds = None
-                
-                # If the scale or statistics are missing, try to add them directly to the output file
-                ds_out = gdal.Open(str(output_path), gdal.GA_Update)
-                if ds_out is not None:
-                    if self.debug:
-                        logger.debug("Ensuring scale and statistics are set in output file")
-                    
-                    # Check and set for each band
-                    for band_number in range(1, ds_out.RasterCount + 1):
-                        band = ds_out.GetRasterBand(band_number)
-                        if band is None:
-                            continue
-                        
-                        # Check if scale is set, if not set it
-                        scale = band.GetScale()
-                        if scale_metadata is not None and (scale is None or scale == 1.0):
-                            if self.debug:
-                                logger.debug(f"Setting scale={scale_metadata} for band {band_number}")
-                            band.SetScale(float(scale_metadata))
-                            band.SetOffset(0.0)
-                        
-                        # Check if statistics are set, if not set them
-                        metadata = band.GetMetadata()
-                        if stats and band_number <= len(stats) and stats[band_number-1]:
-                            s = stats[band_number-1]
-                            if "STATISTICS_MINIMUM" not in metadata:
-                                if self.debug:
-                                    logger.debug(f"Setting statistics for band {band_number}")
-                                band.SetMetadataItem("STATISTICS_MINIMUM", str(s['min']))
-                                band.SetMetadataItem("STATISTICS_MAXIMUM", str(s['max']))
-                                band.SetMetadataItem("STATISTICS_MEAN", str(s['mean']))
-                                band.SetMetadataItem("STATISTICS_STDDEV", str(s['std']))
-                                band.SetMetadataItem("STATISTICS_VALID_PERCENT", str(s['valid_percent']))
-                    
-                    # Flush changes
-                    ds_out.FlushCache()
-                    ds_out = None
-                    
-                    if self.debug:
-                        logger.debug("Final verification of metadata")
-                        ds = gdal.Open(str(output_path))
-                        if ds:
-                            for band_number in range(1, ds.RasterCount + 1):
-                                band = ds.GetRasterBand(band_number)
-                                scale = band.GetScale()
-                                offset = band.GetOffset()
-                                metadata = band.GetMetadata()
-                                logger.debug(f"Band {band_number}: Scale={scale}, Offset={offset}")
-                                logger.debug(f"Band {band_number} metadata: {metadata}")
-                            ds = None
             except Exception as e:
                 # Log the error but continue
                 if self.debug:
@@ -714,7 +694,7 @@ class SentinelHubAPI:
         time_interval: Tuple[datetime.datetime, datetime.datetime],
         output_dir: Optional[str] = None,
         size: Tuple[int, int] = (512, 512),
-        time_difference_days: int = 1,
+        time_difference_days: Optional[int] = 1,
         filename_template: Optional[str] = None,
         evalscript: Optional[str] = None,
         auto_discover_bands: bool = True,
@@ -731,7 +711,7 @@ class SentinelHubAPI:
             time_interval: A tuple of (start_time, end_time) as datetime objects
             output_dir: Directory to save the downloaded images
             size: Size of the output images as (width, height)
-            time_difference_days: Minimum days between downloaded images
+            time_difference_days: Minimum days between downloaded images (if None, download all images)
             filename_template: Template for filenames (default: "{collection}_{date}.tiff")
             evalscript: Custom evalscript for processing the BYOC data
             auto_discover_bands: Whether to automatically discover and include all bands

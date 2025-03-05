@@ -10,48 +10,24 @@ A command-line tool to download GeoTIFF data from Sentinel Hub.
 - Support for various spatial filters (bounding box, GeoJSON)
 - Configurable output directory and file naming
 
+## Dependencies
+
+This package requires the following dependencies:
+
+- Python 3.8+
+- sentinelhub
+- rasterio
+- click
+- tqdm
+- shapely
+
+For Cloud Optimized GeoTIFF (COG) creation and metadata handling:
+- GDAL (optional but recommended)
+
+GDAL is used for setting scale factors and creating optimized GeoTIFFs. If GDAL is not available, the tool will still work but with reduced functionality.
+
 ## Installation
 
 ```bash
 pip install .
 ```
-
-## Authentication
-
-Before using this tool, you need to obtain Sentinel Hub credentials. Visit [Sentinel Hub Dashboard](https://apps.sentinel-hub.com/dashboard/) to create an account and obtain your credentials.
-
-Set up your credentials:
-
-```bash
-shdownload configure
-```
-
-## Usage
-
-Basic usage:
-
-```bash
-shdownload download --collection sentinel-2-l2a
-```
-
-Download specific area:
-
-```bash
-shdownload download --collection sentinel-2-l2a --bbox 10,10,20,20
-```
-
-Specify time range and area:
-
-```bash
-shdownload download --collection sentinel-2-l2a --start 2023-01-01 --end 2023-01-31 --bbox 13.0,45.0,14.0,46.0
-```
-
-For more options:
-
-```bash
-shdownload download --help
-```
-
-## License
-
-MIT
