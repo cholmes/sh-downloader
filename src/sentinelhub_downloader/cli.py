@@ -225,7 +225,7 @@ def download(
     
     # Search for images
     click.echo(f"Searching for {collection} images...")
-    search_results = api.search_catalog(
+    search_results = api.search_images(
         collection=collection,
         time_interval=(start_date, end_date),
         bbox=bbox_tuple,
@@ -364,7 +364,7 @@ def search(
     
     # Search for images
     click.echo(f"Searching for {collection} images...")
-    search_results = api.search_catalog(
+    search_results = api.search_images(
         collection=collection,
         time_interval=(start_date, end_date),
         bbox=bbox_tuple,

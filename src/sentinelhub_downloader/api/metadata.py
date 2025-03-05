@@ -32,7 +32,7 @@ class MetadataAPI:
         return response.json()
     
     def get_byoc_info(self, byoc_id: str) -> Dict[str, Any]:
-        """Get BYOC collection information.
+        """Get information about a BYOC collection using the BYOC API.
         
         Args:
             byoc_id: BYOC collection ID
@@ -40,8 +40,15 @@ class MetadataAPI:
         Returns:
             Collection metadata
         """
-        response = self.client.get(f"{self.client.byoc_url}/collections/{byoc_id}")
-        return response.json()
+        logger.debug(f"Getting BYOC information for collection: {byoc_id}")
+        
+        try:
+            # Make API request to BYOC API
+            response = self.client.get(f"{self.client.byoc_url}/collections/{byoc_id}")
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error getting BYOC information: {e}")
+            raise
     
     def extract_band_info(self, collection_info: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Extract band information from collection metadata.

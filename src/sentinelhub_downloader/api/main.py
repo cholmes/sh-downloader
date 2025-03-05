@@ -17,43 +17,54 @@ logger = logging.getLogger("sentinelhub_downloader")
 class SentinelHubAPI:
     """Main API client that provides access to all Sentinel Hub functionalities."""
     
-    def __init__(self, config: Config, debug: bool = False):
+    def __init__(self, config: Optional[Config] = None, debug: bool = False):
         """Initialize the Sentinel Hub API.
         
         Args:
             config: Configuration object containing credentials
             debug: Enable debug logging
         """
-        self.config = config
+        # Use provided config or create a new one
+        self.config = config or Config()
         self.debug = debug
         
-        # Initialize base client
-        self.client = SentinelHubClient(config, debug=debug)
+        # Initialize client
+        self.client = SentinelHubClient(self.config, debug=debug)
         
-        # Initialize API modules
+        # Initialize API components
         self.process_api = ProcessAPI(self.client)
         self.catalog_api = CatalogAPI(self.client)
         self.metadata_api = MetadataAPI(self.client)
+        
+        # Initialize higher-level APIs that depend on the components
         self.downloader_api = DownloaderAPI(self.client, self.process_api)
         self.byoc_api = BYOCAPI(self.client, self.process_api, self.catalog_api, self.metadata_api)
     
     # Proxy methods to underlying APIs for backward compatibility
     
-    def search_catalog(self, *args, **kwargs):
-        """Search the Sentinel Hub Catalog for available images."""
-        return self.catalog_api.search_catalog(*args, **kwargs)
+    def search_images(self, *args, **kwargs):
+        """Search for available images."""
+        return self.catalog_api.search_images(*args, **kwargs)
     
     def get_available_dates(self, *args, **kwargs):
-        """Get a list of dates with available images."""
+        """Get available dates for a collection."""
         return self.catalog_api.get_available_dates(*args, **kwargs)
     
     def download_image(self, *args, **kwargs):
-        """Download a specific image from Sentinel Hub."""
+        """Download a single image."""
         return self.downloader_api.download_image(*args, **kwargs)
+    
+    def download_timeseries(self, *args, **kwargs):
+        """Download a time series of images."""
+        return self.catalog_api.download_timeseries(*args, **kwargs)
     
     def download_byoc_timeseries(self, *args, **kwargs):
         """Download a time series of images from a BYOC collection."""
         return self.byoc_api.download_byoc_timeseries(*args, **kwargs)
+    
+    def get_collection_info(self, *args, **kwargs):
+        """Get information about a collection."""
+        return self.metadata_api.get_collection_info(*args, **kwargs)
     
     def get_stac_info(self, *args, **kwargs):
         """Get STAC collection information."""

@@ -20,7 +20,7 @@ class CatalogAPI:
         """
         self.client = client
         
-    def search_catalog(
+    def search_images(
         self,
         collection: str,
         time_interval: Tuple[datetime, datetime],
@@ -113,7 +113,7 @@ class CatalogAPI:
         
         # Implement pagination
         # First fetch with initial limit
-        search_results = self.search_catalog(
+        search_results = self.search_images(
             collection=collection,
             time_interval=time_interval,
             bbox=bbox,
@@ -152,7 +152,7 @@ class CatalogAPI:
                 break
             
             # Fetch the next page
-            search_results = self.search_catalog(
+            search_results = self.search_images(
                 collection=collection,
                 time_interval=(new_start, end_date),
                 bbox=bbox,
