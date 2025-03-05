@@ -36,9 +36,33 @@ pip install .
 
 Before using the tool, you need to configure your Sentinel Hub credentials:
 
+```
 shdownload config --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+```
 
 This will create a configuration file at `~/.sentinelhub/config.json`.
+
+### Command Help
+
+```
+shdownload --help
+
+Usage: shdownload [OPTIONS] COMMAND [ARGS]...
+
+  Command line tool for downloading data from Sentinel Hub.
+
+Options:
+  --debug / --no-debug  Enable debug logging
+  --help                Show this message and exit.
+
+Commands:
+  byoc        Download a time series of images from a BYOC collection.
+  config      Configure Sentinel Hub credentials.
+  download    Download a specific image from Sentinel Hub.
+  info        Get information about a collection.
+  search      Search for available images.
+  timeseries  Download a time series of images.
+```
 
 ## Usage
 
@@ -48,6 +72,29 @@ Search for available Sentinel-2 L2A images in a specific area and time range:
 
 ```
 shdownload search --collection sentinel-2-l2a --bbox 14.0 45.0 14.5 45.5 --time-from 2023-01-01 --time-to 2023-01-31
+```
+
+#### Search Command Help
+
+```
+shdownload search --help
+
+Usage: shdownload search [OPTIONS]
+
+  Search for available images.
+
+Options:
+  --collection TEXT              Collection name (e.g., sentinel-2-l2a)
+                                 [required]
+  --bbox FLOAT...                Bounding box as min_lon min_lat max_lon
+                                 max_lat  [required]
+  --time-from TEXT               Start date (YYYY-MM-DD)  [required]
+  --time-to TEXT                 End date (YYYY-MM-DD)  [required]
+  --byoc-id TEXT                 BYOC collection ID (required if collection is
+                                 'byoc')
+  --time-difference-days INTEGER
+                                 Minimum days between images
+  --help                         Show this message and exit.
 ```
 
 Sample output:
@@ -70,6 +117,33 @@ Download a specific Sentinel-2 L2A image by date:
 shdownload download --collection sentinel-2-l2a --bbox 14.0 45.0 14.5 45.5 --date 2023-01-30 --output-dir ./images
 ```
 
+#### Download Command Help
+
+```
+shdownload download --help
+
+Usage: shdownload download [OPTIONS]
+
+  Download a specific image from Sentinel Hub.
+
+Options:
+  --collection TEXT         Collection name (e.g., sentinel-2-l2a)  [required]
+  --bbox FLOAT...           Bounding box as min_lon min_lat max_lon max_lat
+                            [required]
+  --date TEXT               Date to download (YYYY-MM-DD)
+  --image-id TEXT           Specific image ID to download
+  --output-dir TEXT         Directory to save the downloaded image
+  --filename TEXT           Filename for the downloaded image
+  --byoc-id TEXT            BYOC collection ID (required if collection is
+                            'byoc')
+  --size INTEGER...         Size of the output image as width height
+  --bands TEXT              Comma-separated list of bands to include
+  --data-type TEXT          Output data type (AUTO, UINT8, UINT16, FLOAT32)
+  --nodata FLOAT            Value to use for nodata pixels
+  --scale FLOAT             Scale factor for the output image
+  --help                    Show this message and exit.
+```
+
 Sample output:
 
 Downloading image for 2023-01-30...
@@ -81,6 +155,35 @@ Download all available Sentinel-2 L2A images in a specific area and time range:
 
 ```
 shdownload timeseries --collection sentinel-2-l2a --bbox 14.0 45.0 14.5 45.5 --time-from 2023-01-01 --time-to 2023-01-31 --output-dir ./timeseries
+```
+
+#### Timeseries Command Help
+
+```
+shdownload timeseries --help
+
+Usage: shdownload timeseries [OPTIONS]
+
+  Download a time series of images.
+
+Options:
+  --collection TEXT              Collection name (e.g., sentinel-2-l2a)
+                                   [required]
+  --bbox FLOAT...                Bounding box as min_lon min_lat max_lon
+                                   max_lat  [required]
+  --time-from TEXT               Start date (YYYY-MM-DD)  [required]
+  --time-to TEXT                 End date (YYYY-MM-DD)  [required]
+  --output-dir TEXT              Directory to save the downloaded images
+  --filename-template TEXT       Template for filenames
+  --time-difference-days INTEGER
+                                   Minimum days between images
+  --size INTEGER...              Size of the output images as width height
+  --bands TEXT                   Comma-separated list of bands to include
+  --data-type TEXT               Output data type (AUTO, UINT8, UINT16,
+                                   FLOAT32)
+  --nodata FLOAT                 Value to use for nodata pixels
+  --scale FLOAT                  Scale factor for the output images
+  --help                         Show this message and exit.
 ```
 
 Sample output:
@@ -100,7 +203,39 @@ Downloaded 8 images to ./timeseries
 
 Download data from a custom collection:
 
+```
 shdownload byoc --byoc-id YOUR_BYOC_ID --bbox 14.0 45.0 14.5 45.5 --time-from 2023-01-01 --time-to 2023-01-31 --output-dir ./byoc
+```
+
+#### BYOC Command Help
+
+```
+shdownload byoc --help
+
+Usage: shdownload byoc [OPTIONS]
+
+  Download a time series of images from a BYOC collection.
+
+Options:
+  --byoc-id TEXT                 BYOC collection ID  [required]
+  --bbox FLOAT...                Bounding box as min_lon min_lat max_lon
+                                   max_lat  [required]
+  --time-from TEXT               Start date (YYYY-MM-DD)  [required]
+  --time-to TEXT                 End date (YYYY-MM-DD)  [required]
+  --output-dir TEXT              Directory to save the downloaded images
+  --filename-template TEXT       Template for filenames
+  --time-difference-days INTEGER
+                                   Minimum days between images
+  --size INTEGER...              Size of the output images as width height
+  --bands TEXT                   Comma-separated list of bands to include
+  --auto-discover-bands / --no-auto-discover-bands
+                                   Automatically discover and include all bands
+  --data-type TEXT               Output data type (AUTO, UINT8, UINT16,
+                                   FLOAT32)
+  --nodata FLOAT                 Value to use for nodata pixels
+  --scale FLOAT                  Scale factor for the output images
+  --help                         Show this message and exit.
+```
 
 Sample output:
 
@@ -119,6 +254,21 @@ Get metadata about a collection:
 
 ```
 shdownload info --collection sentinel-2-l2a
+```
+
+#### Info Command Help
+
+```
+shdownload info --help
+
+Usage: shdownload info [OPTIONS]
+
+  Get information about a collection.
+
+Options:
+  --collection TEXT  Collection name (e.g., sentinel-2-l2a)  [required]
+  --byoc-id TEXT     BYOC collection ID (required if collection is 'byoc')
+  --help             Show this message and exit.
 ```
 
 Sample output:
