@@ -4,6 +4,7 @@ import datetime
 import logging
 import os
 import sys
+import json
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -26,7 +27,7 @@ logger.addHandler(handler)
 @click.version_option()
 @click.option(
     "--debug/--no-debug",
-    default=False,  # Default to True for now
+    default=False, 
     help="Enable debug logging",
 )
 @click.pass_context
@@ -567,6 +568,227 @@ def byoc(
             click.echo(f"  - {file_path}")
     else:
         click.echo("No images were downloaded.")
+
+
+@cli.command()
+@click.option(
+    "--collection-id",
+    required=True,
+    help="Collection ID to get information about (can be a standard collection ID or BYOC ID)",
+)
+@click.option(
+    "--raw/--formatted",
+    default=False,
+    help="Display raw JSON or formatted output (default: formatted)",
+)
+@click.option(
+    "--byoc-api/--stac-api",
+    default=False,
+    help="Use BYOC API instead of STAC API for BYOC collections (default: STAC API)",
+)
+@click.pass_context
+def info(
+    ctx,
+    collection_id: str,
+    raw: bool,
+    byoc_api: bool,
+):
+    """Get information about a collection (standard or BYOC)."""
+    debug = ctx.obj.get("DEBUG", False)
+    config = Config()
+    
+    # Check if configured
+    if not config.is_configured():
+        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
+        config.configure_wizard()
+    
+    # Set up API client with debug flag
+    api = SentinelHubAPI(config, debug=debug)
+    
+    # Check if the collection ID is a UUID (BYOC collection)
+    is_uuid = False
+    try:
+        import uuid
+        uuid.UUID(collection_id)
+        is_uuid = True
+    except (ValueError, AttributeError):
+        pass
+    
+    # Determine which API to use
+    if is_uuid and byoc_api:
+        # Use BYOC API for BYOC collections if requested
+        click.echo(f"Getting BYOC information for collection: {collection_id}")
+        try:
+            collection_info = api.get_byoc_info(collection_id)
+            
+            if raw:
+                # Display raw JSON
+                click.echo(json.dumps(collection_info, indent=2))
+            else:
+                # Display formatted information
+                if "data" in collection_info:
+                    # Use the data field if it exists
+                    collection_data = collection_info["data"]
+                else:
+                    # Otherwise use the top level
+                    collection_data = collection_info
+                
+                click.echo("\nCollection Information:")
+                click.echo(f"  ID: {collection_data.get('id', 'N/A')}")
+                click.echo(f"  Name: {collection_data.get('name', 'N/A')}")
+                click.echo(f"  Created: {collection_data.get('created', 'N/A')}")
+                
+                # Display bands information if available
+                if "additionalData" in collection_data and "bands" in collection_data["additionalData"]:
+                    bands = collection_data["additionalData"]["bands"]
+                    click.echo("\nBands:")
+                    for band_name, band_info in bands.items():
+                        click.echo(f"  - {band_name}:")
+                        click.echo(f"      Sample Format: {band_info.get('sampleFormat', 'N/A')}")
+                        click.echo(f"      Bit Depth: {band_info.get('bitDepth', 'N/A')}")
+                        click.echo(f"      No Data Value: {band_info.get('noData', 'N/A')}")
+                        click.echo(f"      Band Index: {band_info.get('bandIndex', 'N/A')}")
+                        click.echo(f"      Source: {band_info.get('source', 'N/A')}")
+                
+                # Display temporal extent if available
+                if "additionalData" in collection_data:
+                    additional_data = collection_data["additionalData"]
+                    
+                    # Check for temporal information
+                    if "fromSensingTime" in additional_data and "toSensingTime" in additional_data:
+                        click.echo("\nTemporal Extent:")
+                        click.echo(f"  Start: {additional_data.get('fromSensingTime', 'N/A')}")
+                        click.echo(f"  End: {additional_data.get('toSensingTime', 'N/A')}")
+                    
+                    # Display spatial extent if available
+                    if "extent" in additional_data:
+                        extent = additional_data["extent"]
+                        if "coordinates" in extent:
+                            coords = extent["coordinates"][0]
+                            min_lon = min(c[0] for c in coords)
+                            min_lat = min(c[1] for c in coords)
+                            max_lon = max(c[0] for c in coords)
+                            max_lat = max(c[1] for c in coords)
+                            
+                            click.echo("\nSpatial Extent (BBOX):")
+                            click.echo(f"  {min_lon},{min_lat},{max_lon},{max_lat}")
+                    
+                    # Display other metadata
+                    click.echo("\nAdditional Metadata:")
+                    for key, value in additional_data.items():
+                        if key not in ["bands", "extent", "fromSensingTime", "toSensingTime"]:
+                            click.echo(f"  {key}: {value}")
+        
+        except Exception as e:
+            click.echo(f"Error getting BYOC information: {e}")
+            if debug:
+                import traceback
+                click.echo(traceback.format_exc())
+    
+    else:
+        # Use STAC API for all collections (default)
+        # For BYOC collections, prepend "byoc-" to the UUID
+        stac_collection_id = f"byoc-{collection_id}" if is_uuid else collection_id
+        
+        click.echo(f"Getting STAC information for collection: {stac_collection_id}")
+        
+        try:
+            stac_info = api.get_stac_info(stac_collection_id)
+            
+            if raw:
+                # Display raw JSON
+                click.echo(json.dumps(stac_info, indent=2))
+            else:
+                # Display formatted information
+                click.echo("\nSTAC Collection Information:")
+                click.echo(f"  ID: {stac_info.get('id', 'N/A')}")
+                click.echo(f"  Title: {stac_info.get('title', 'N/A')}")
+                click.echo(f"  Description: {stac_info.get('description', 'N/A')}")
+                click.echo(f"  License: {stac_info.get('license', 'N/A')}")
+                click.echo(f"  Version: {stac_info.get('version', 'N/A')}")
+                click.echo(f"  STAC Version: {stac_info.get('stac_version', 'N/A')}")
+                
+                # Display spatial extent
+                if "extent" in stac_info:
+                    extent = stac_info["extent"]
+                    if "spatial" in extent:
+                        spatial = extent["spatial"]
+                        if "bbox" in spatial and spatial["bbox"]:
+                            bbox = spatial["bbox"][0]
+                            click.echo("\nSpatial Extent (BBOX):")
+                            click.echo(f"  {bbox}")
+                    
+                    if "temporal" in extent:
+                        temporal = extent["temporal"]
+                        if "interval" in temporal and temporal["interval"]:
+                            interval = temporal["interval"][0]
+                            click.echo("\nTemporal Extent:")
+                            click.echo(f"  Start: {interval[0] if interval[0] else 'N/A'}")
+                            click.echo(f"  End: {interval[1] if interval[1] else 'N/A'}")
+                
+                # Display providers
+                if "providers" in stac_info and stac_info["providers"]:
+                    click.echo("\nProviders:")
+                    for provider in stac_info["providers"]:
+                        click.echo(f"  - {provider.get('name', 'N/A')}: {provider.get('description', 'N/A')}")
+                        if "roles" in provider:
+                            click.echo(f"    Roles: {', '.join(provider['roles'])}")
+                        if "url" in provider:
+                            click.echo(f"    URL: {provider['url']}")
+                
+                # Display summaries
+                if "summaries" in stac_info:
+                    summaries = stac_info["summaries"]
+                    click.echo("\nSummaries:")
+                    for key, value in summaries.items():
+                        if isinstance(value, list) and len(value) > 10:
+                            click.echo(f"  {key}: {value[:5]} ... (and {len(value)-5} more)")
+                        else:
+                            click.echo(f"  {key}: {value}")
+                
+                # Display assets
+                if "assets" in stac_info:
+                    assets = stac_info["assets"]
+                    click.echo("\nAssets:")
+                    for asset_name, asset_info in assets.items():
+                        click.echo(f"  - {asset_name}:")
+                        click.echo(f"      Title: {asset_info.get('title', 'N/A')}")
+                        click.echo(f"      Type: {asset_info.get('type', 'N/A')}")
+                        if "roles" in asset_info:
+                            click.echo(f"      Roles: {', '.join(asset_info['roles'])}")
+                
+                # Display item assets
+                if "item_assets" in stac_info:
+                    item_assets = stac_info["item_assets"]
+                    click.echo("\nItem Assets (Bands):")
+                    for asset_name, asset_info in item_assets.items():
+                        click.echo(f"  - {asset_name}:")
+                        click.echo(f"      Title: {asset_info.get('title', 'N/A')}")
+                        click.echo(f"      Type: {asset_info.get('type', 'N/A')}")
+                        if "roles" in asset_info:
+                            click.echo(f"      Roles: {', '.join(asset_info['roles'])}")
+                        
+                        # Display raster band information if available
+                        if "raster:bands" in asset_info:
+                            bands = asset_info["raster:bands"]
+                            for i, band in enumerate(bands):
+                                click.echo(f"      Band {i+1}:")
+                                if "data_type" in band:
+                                    click.echo(f"        Data Type: {band['data_type']}")
+                                if "nodata" in band:
+                                    click.echo(f"        No Data Value: {band['nodata']}")
+                                if "unit" in band:
+                                    click.echo(f"        Unit: {band['unit']}")
+                                if "scale" in band:
+                                    click.echo(f"        Scale: {band['scale']}")
+                                if "offset" in band:
+                                    click.echo(f"        Offset: {band['offset']}")
+        
+        except Exception as e:
+            click.echo(f"Error getting STAC information: {e}")
+            if debug:
+                import traceback
+                click.echo(traceback.format_exc())
 
 
 if __name__ == "__main__":

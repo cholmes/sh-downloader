@@ -1180,3 +1180,114 @@ class SentinelHubAPI:
             logger.debug(evalscript)
         
         return evalscript 
+
+    def get_byoc_info(self, byoc_id: str) -> Dict:
+        """
+        Get information about a BYOC collection.
+        
+        Args:
+            byoc_id: The BYOC collection ID
+            
+        Returns:
+            Dictionary containing collection information
+        """
+        if self.debug:
+            logger.debug(f"Getting information for BYOC collection: {byoc_id}")
+        
+        # Get OAuth token
+        token = self._get_oauth_token()
+        
+        # Construct the URL
+        url = f"https://services.sentinel-hub.com/api/v1/byoc/collections/{byoc_id}"
+        
+        # Make the request
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        # Check for errors
+        response.raise_for_status()
+        
+        # Parse the response
+        collection_info = response.json()
+        
+        if self.debug:
+            logger.debug("Successfully retrieved collection information")
+            logger.debug(f"Collection name: {collection_info.get('name', 'N/A')}")
+        
+        return collection_info
+
+    def _get_oauth_token(self) -> str:
+        """
+        Get an OAuth token for the Sentinel Hub API.
+        
+        Returns:
+            OAuth token string
+        """
+        if self.debug:
+            logger.debug("Getting OAuth token")
+        
+        # Construct the token request
+        token_url = "https://services.sentinel-hub.com/oauth/token"
+        client_id = self.config.get("client_id")
+        client_secret = self.config.get("client_secret")
+        
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret
+        }
+        
+        # Make the request
+        response = requests.post(token_url, data=data)
+        
+        # Check for errors
+        response.raise_for_status()
+        
+        # Parse the response
+        token_info = response.json()
+        
+        if self.debug:
+            logger.debug("Successfully retrieved OAuth token")
+        
+        return token_info["access_token"]
+
+    def get_stac_info(self, collection_id: str) -> Dict:
+        """
+        Get STAC information about a collection.
+        
+        Args:
+            collection_id: The collection ID (can be a standard collection ID or a BYOC ID with 'byoc-' prefix)
+            
+        Returns:
+            Dictionary containing STAC collection information
+        """
+        if self.debug:
+            logger.debug(f"Getting STAC information for collection: {collection_id}")
+        
+        # Get OAuth token
+        token = self._get_oauth_token()
+        
+        # Construct the URL
+        url = f"https://services.sentinel-hub.com/api/v1/catalog/1.0.0/collections/{collection_id}"
+        
+        # Make the request
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        # Check for errors
+        response.raise_for_status()
+        
+        # Parse the response
+        stac_info = response.json()
+        
+        if self.debug:
+            logger.debug("Successfully retrieved STAC information")
+            logger.debug(f"Collection title: {stac_info.get('title', 'N/A')}")
+        
+        return stac_info 
