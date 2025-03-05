@@ -84,3 +84,18 @@ def get_date_range(
         raise click.BadParameter("Start date must be before end date")
     
     return start_date, end_date 
+
+
+def format_time_interval(time_interval):
+    """Format a time interval for Sentinel Hub API requests.
+    
+    Args:
+        time_interval: Tuple of (start_date, end_date) as datetime objects
+        
+    Returns:
+        Tuple of (start_str, end_str) formatted as ISO 8601 strings
+    """
+    start_date, end_date = time_interval
+    time_from = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_to = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return time_from, time_to 
