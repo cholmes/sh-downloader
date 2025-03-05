@@ -27,7 +27,7 @@ logger.addHandler(handler)
 @click.version_option()
 @click.option(
     "--debug/--no-debug",
-    default=False, 
+    default=True, 
     help="Enable debug logging",
 )
 @click.pass_context
@@ -446,7 +446,30 @@ def search(
 @click.option(
     "--scale",
     type=float,
-    help="Scale factor to set in the output GeoTIFF (e.g., 0.001)",
+    help="Value to set as SCALE metadata in the output GeoTIFF",
+)
+@click.option(
+    "--data-type",
+    type=click.Choice([
+        "AUTO", "auto",
+        "INT8", "int8",
+        "INT16", "int16",
+        "INT32", "int32",
+        "INT64", "int64",
+        "UINT8", "uint8",
+        "UINT16", "uint16",
+        "UINT32", "uint32",
+        "UINT64", "uint64",
+        "FLOAT16", "float16",
+        "FLOAT32", "float32",
+        "FLOAT64", "float64",
+        "CINT16", "cint16",
+        "CINT32", "cint32",
+        "CFLOAT32", "cfloat32",
+        "CFLOAT64", "cfloat64"
+    ], case_sensitive=False),
+    default="AUTO",
+    help="Output data type (default: AUTO)",
 )
 @click.pass_context
 def byoc(
@@ -465,8 +488,9 @@ def byoc(
     auto_discover_bands: bool,
     nodata: Optional[float],
     scale: Optional[float],
+    data_type: str,
 ):
-    """Download a time series from a BYOC (Bring Your Own Collection)."""
+    """Download images from a BYOC collection."""
     debug = ctx.obj.get("DEBUG", False)
     config = Config()
     
@@ -487,48 +511,15 @@ def byoc(
     click.echo(f"Bounding box: {bbox_tuple}")
     
     # Parse size
-    width, height = map(int, size.split(","))
-    size_tuple = (width, height)
+    size_tuple = tuple(map(int, size.split(",")))
+    click.echo(f"Output size: {size_tuple}")
     
-    # Set default filename template if not provided
-    if not filename_template:
-        filename_template = f"BYOC_{byoc_id[:8]}_{{date}}.tiff"
-    
-    # Load custom evalscript if provided
-    evalscript = None
-    if evalscript_file:
-        try:
-            with open(evalscript_file, 'r') as f:
-                evalscript = f.read()
-            click.echo(f"Loaded custom evalscript from {evalscript_file}")
-            # If a custom evalscript is provided, don't auto-discover bands
-            auto_discover_bands = False
-        except Exception as e:
-            click.echo(f"Error loading evalscript file: {e}")
-            return
-    
-    # If bands are specified, create an evalscript for those bands
-    specified_bands = None
-    if bands:
-        specified_bands = [band.strip() for band in bands.split(',')]
-        click.echo(f"Using specified bands: {specified_bands}")
-        evalscript = api.create_dynamic_evalscript(specified_bands)
-        # If bands are specified, don't auto-discover
-        auto_discover_bands = False
-    
-    if auto_discover_bands and not evalscript and not specified_bands:
-        click.echo("Auto-discovering bands in BYOC collection...")
-    
-    # Determine if we should filter dates
-    effective_time_difference = None if all_dates else time_difference
-    
-    if all_dates:
-        click.echo("Downloading all available dates without filtering")
-    elif time_difference is not None:
-        click.echo(f"Using time difference filter: {time_difference} days")
+    # Determine time difference
+    effective_time_difference = None
+    if not all_dates:
+        effective_time_difference = time_difference
     
     # Get available dates
-    click.echo(f"Searching for available dates in BYOC collection {byoc_id}...")
     available_dates = api.get_available_dates(
         collection="byoc",
         byoc_id=byoc_id,
@@ -538,11 +529,36 @@ def byoc(
     )
     
     if not available_dates:
-        click.echo("No images found matching the criteria.")
+        click.echo("No images found for the specified criteria")
         return
     
-    click.echo(f"Found {len(available_dates)} dates with images.")
-    click.echo(f"Available dates: {[d.strftime('%Y-%m-%d') for d in available_dates]}")
+    click.echo(f"Found {len(available_dates)} images")
+    
+    # Parse bands if provided
+    specified_bands = None
+    if bands:
+        specified_bands = [b.strip() for b in bands.split(",")]
+        click.echo(f"Using specified bands: {specified_bands}")
+        # Disable auto-discovery if bands are specified
+        auto_discover_bands = False
+    
+    # Load evalscript from file if provided
+    evalscript = None
+    if evalscript_file:
+        try:
+            with open(evalscript_file, "r") as f:
+                evalscript = f.read()
+            click.echo(f"Loaded evalscript from {evalscript_file}")
+        except Exception as e:
+            click.echo(f"Error loading evalscript: {e}")
+            return
+    
+    # If no evalscript is provided but bands are specified, create a dynamic evalscript
+    if not evalscript and specified_bands:
+        evalscript = api.create_dynamic_evalscript(specified_bands, data_type=data_type)
+        click.echo("Created dynamic evalscript for specified bands")
+        if debug:
+            click.echo(f"Evalscript:\n{evalscript}")
     
     # Download images
     click.echo(f"Downloading {len(available_dates)} images...")
@@ -559,7 +575,8 @@ def byoc(
         auto_discover_bands=auto_discover_bands,
         specified_bands=specified_bands,
         nodata_value=nodata,
-        scale_metadata=scale
+        scale_metadata=scale,
+        data_type=data_type.upper()
     )
     
     if downloaded_files:

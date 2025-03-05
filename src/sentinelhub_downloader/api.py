@@ -701,6 +701,7 @@ class SentinelHubAPI:
         specified_bands: Optional[List[str]] = None,
         nodata_value: Optional[float] = None,
         scale_metadata: Optional[float] = None,
+        data_type: str = "AUTO",
     ) -> List[str]:
         """
         Download a time series of images from a BYOC collection.
@@ -718,6 +719,7 @@ class SentinelHubAPI:
             specified_bands: List of specific band names to download
             nodata_value: Value to use for nodata pixels in the output GeoTIFF
             scale_metadata: Value to set as SCALE metadata in the output GeoTIFF
+            data_type: Output data type (e.g., "AUTO", "UINT8", "UINT16", "FLOAT32")
             
         Returns:
             List of paths to the downloaded files
@@ -758,20 +760,34 @@ class SentinelHubAPI:
         if filename_template is None:
             filename_template = "BYOC_{date}.tiff"
         
-        # If no custom evalscript is provided, create one based on specified bands or auto-discovery
+        # If no evalscript is provided, create one based on the bands
         if not evalscript:
-            if specified_bands:
-                # Use the specified bands
-                evalscript = self.create_dynamic_evalscript(specified_bands)
+            if auto_discover_bands:
+                # Discover available bands
+                bands = self.get_byoc_bands(
+                    byoc_id=byoc_id,
+                    bbox=bbox,
+                    time_interval=time_interval
+                )
+                
                 if self.debug:
-                    logger.debug(f"Created evalscript for specified bands: {specified_bands}")
-            elif auto_discover_bands:
-                # Try to discover bands
-                bands = self.get_byoc_bands(byoc_id, time_interval, bbox)
-                if bands:
-                    evalscript = self.create_dynamic_evalscript(bands)
-                    if self.debug:
-                        logger.debug(f"Using auto-discovered bands: {bands}")
+                    logger.debug(f"Auto-discovered bands: {bands}")
+                    logger.debug(f"Using data type: {data_type}")
+                
+                if not bands:
+                    raise ValueError("No bands discovered in BYOC collection")
+                
+                # Create evalscript with all discovered bands
+                evalscript = self.create_dynamic_evalscript(bands, data_type=data_type)
+            elif specified_bands:
+                # Create evalscript with specified bands
+                if self.debug:
+                    logger.debug(f"Using specified bands: {specified_bands}")
+                    logger.debug(f"Using data type: {data_type}")
+                evalscript = self.create_dynamic_evalscript(specified_bands, data_type=data_type)
+            else:
+                # Use default evalscript
+                evalscript = self._get_evalscript_for_collection("byoc")
         
         downloaded_files = []
         
@@ -1111,12 +1127,13 @@ class SentinelHubAPI:
         
         return bands
 
-    def create_dynamic_evalscript(self, bands: List[str]) -> str:
+    def create_dynamic_evalscript(self, bands: List[str], data_type: str = "AUTO") -> str:
         """
         Create a dynamic evalscript that includes all specified bands.
         
         Args:
             bands: List of band names to include
+            data_type: Output data type (e.g., "AUTO", "UINT8", "UINT16", "FLOAT32")
             
         Returns:
             An evalscript that will return all specified bands
@@ -1128,6 +1145,12 @@ class SentinelHubAPI:
         
         # Create the input section with all bands
         bands_str = ', '.join([f'"{band}"' for band in bands])
+        
+        # Ensure data_type is uppercase
+        data_type = data_type.upper()
+        
+        if self.debug:
+            logger.debug(f"Creating evalscript with data type: {data_type}")
         
         # For a single band, create a grayscale image
         if len(bands) == 1:
@@ -1143,7 +1166,7 @@ class SentinelHubAPI:
                     output: {{
                         id: "default",
                         bands: 1,
-                        sampleType: "AUTO"
+                        sampleType: "{data_type}"
                     }}
                 }};
             }}
@@ -1165,7 +1188,7 @@ class SentinelHubAPI:
                     output: {{
                         id: "default",
                         bands: {len(bands)},
-                        sampleType: "AUTO"
+                        sampleType: "{data_type}"
                     }}
                 }};
             }}
