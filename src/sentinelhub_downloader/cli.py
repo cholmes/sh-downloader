@@ -149,6 +149,13 @@ def download(
     # Set up API client with debug flag
     api = SentinelHubAPI(config, debug=debug)
     
+    # Set logger level based on debug flag
+    if debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled for download command")
+    else:
+        logger.setLevel(logging.INFO)
+    
     # Set default output directory if not provided
     if not output_dir:
         output_dir = config.get("output_dir")
@@ -336,6 +343,13 @@ def search(
     # Set up API client with debug flag
     api = SentinelHubAPI(config, debug=debug)
     
+    # Set logger level based on debug flag
+    if debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled for search command")
+    else:
+        logger.setLevel(logging.INFO)
+    
     # Parse date range
     start_date, end_date = get_date_range(start, end)
     click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -502,6 +516,13 @@ def byoc(
     # Set up API client with debug flag
     api = SentinelHubAPI(config, debug=debug)
     
+    # Set logger level based on debug flag
+    if debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled for BYOC command")
+    else:
+        logger.setLevel(logging.INFO)
+    
     # Parse date range
     start_date, end_date = get_date_range(start, end)
     click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -621,6 +642,13 @@ def info(
     
     # Set up API client with debug flag
     api = SentinelHubAPI(config, debug=debug)
+    
+    # Set logger level based on debug flag
+    if debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled for info command")
+    else:
+        logger.setLevel(logging.INFO)
     
     # Check if the collection ID is a UUID (BYOC collection)
     is_uuid = False
