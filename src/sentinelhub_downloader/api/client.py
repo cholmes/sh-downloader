@@ -44,7 +44,7 @@ class SentinelHubClient:
         # Base URLs for different APIs
         self.auth_url = "https://services.sentinel-hub.com/auth/realms/main/protocol/openid-connect/token"
         self.processing_api_url = "https://services.sentinel-hub.com/api/v1/process"
-        self.catalog_url = "https://services.sentinel-hub.com/api/v1/catalog"
+        self.catalog_url = "https://services.sentinel-hub.com/api/v1/catalog/1.0.0"
         self.byoc_url = "https://services.sentinel-hub.com/api/v1/byoc"
         
         # Setup SHConfig for sentinelhub-py
