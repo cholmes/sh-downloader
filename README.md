@@ -266,3 +266,11 @@ Image saved to ./images/sentinel-2-l2a_2023-01-30.tiff
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+
+## TODO's
+
+- Start issue tracker to put these in
+- clean up extra gdal files
+- option to provide a template for file naming
+- show progress as images are downloading / completing
