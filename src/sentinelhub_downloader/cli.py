@@ -98,7 +98,9 @@ def configure(ctx):
 @click.option(
     "--bbox",
     "-b",
-    help="Bounding box as min_lon,min_lat,max_lon,max_lat. Default is global.",
+    required=False,
+    help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional if --image-id is provided.",
+    callback=parse_bbox,
 )
 @click.option(
     "--max-cloud-cover",
@@ -398,6 +400,11 @@ def search(
     help="BYOC collection ID",
 )
 @click.option(
+    "--image-id",
+    "-i",
+    help="Image ID to download",
+)
+@click.option(
     "--start",
     "-s",
     help="Start date (YYYY-MM-DD). Defaults to 30 days ago.",
@@ -410,8 +417,9 @@ def search(
 @click.option(
     "--bbox",
     "-b",
-    required=True,
-    help="Bounding box as min_lon,min_lat,max_lon,max_lat",
+    required=False,
+    help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional - if not provided, will use each image's own bbox.",
+    callback=parse_bbox,
 )
 @click.option(
     "--output-dir",
@@ -489,9 +497,10 @@ def search(
 def byoc(
     ctx,
     byoc_id: str,
+    image_id: Optional[str],
     start: Optional[str],
     end: Optional[str],
-    bbox: str,
+    bbox: Optional[str],
     output_dir: Optional[str],
     size: str,
     time_difference: Optional[int],
@@ -528,17 +537,69 @@ def byoc(
     click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
     
     # Parse bounding box
-    bbox_tuple = parse_bbox(bbox)
-    click.echo(f"Bounding box: {bbox_tuple}")
+    bbox_tuple = None
+    if bbox:
+        bbox_tuple = parse_bbox(bbox)
+        click.echo(f"Bounding box: {bbox_tuple}")
+    else:
+        click.echo("No bounding box provided - will use each image's own bbox")
+    
+    # If a specific image ID is provided, download just that image
+    if image_id:
+        click.echo(f"Downloading specific image: {image_id}")
+        try:
+            # If bbox is not provided, it will be retrieved from the image metadata
+            output_path = api.download_image(
+                image_id=image_id,
+                collection="byoc",
+                byoc_id=byoc_id,
+                bbox=bbox_tuple,
+                output_dir=output_dir,
+                size=tuple(map(int, size.split(","))),
+                evalscript=evalscript,
+                specified_bands=specified_bands,
+                nodata_value=nodata,
+                scale_metadata=scale,
+                data_type=data_type.upper()
+            )
+            click.echo(f"Image downloaded to: {output_path}")
+            return
+        except Exception as e:
+            click.echo(f"Error downloading image: {e}")
+            if debug:
+                import traceback
+                click.echo(traceback.format_exc())
+            return
     
     # Parse size
     size_tuple = tuple(map(int, size.split(",")))
     click.echo(f"Output size: {size_tuple}")
-    
+
     # Determine time difference
     effective_time_difference = None
     if not all_dates:
         effective_time_difference = time_difference
+
+    # For searching images, we need a bbox
+    if not bbox_tuple:
+        # If no bbox is provided for search, use the collection's bbox
+        try:
+            collection_info = api.get_stac_info(f"byoc-{byoc_id}")
+            if "extent" in collection_info and "spatial" in collection_info["extent"]:
+                spatial = collection_info["extent"]["spatial"]
+                if "bbox" in spatial and spatial["bbox"]:
+                    bbox_tuple = tuple(spatial["bbox"][0])
+                    click.echo(f"Using collection's bbox for search: {bbox_tuple}")
+                else:
+                    click.echo("No bbox found in collection metadata")
+                    return
+            else:
+                click.echo("No spatial extent found in collection metadata")
+                return
+        except Exception as e:
+            click.echo(f"Error retrieving collection bbox: {e}")
+            click.echo("Please provide a bbox for searching")
+            return
     
     # Get available dates
     available_dates = api.get_available_dates(
@@ -584,21 +645,69 @@ def byoc(
     # Download images
     click.echo(f"Downloading {len(available_dates)} images...")
     
-    downloaded_files = api.download_byoc_timeseries(
-        byoc_id=byoc_id,
-        bbox=bbox_tuple,
-        time_interval=(start_date, end_date),
-        output_dir=output_dir,
-        size=size_tuple,
-        time_difference_days=effective_time_difference,
-        filename_template=filename_template,
-        evalscript=evalscript,
-        auto_discover_bands=auto_discover_bands,
-        specified_bands=specified_bands,
-        nodata_value=nodata,
-        scale_metadata=scale,
-        data_type=data_type.upper()
-    )
+    # If we're using each image's own bbox, we need to modify the download approach
+    if bbox_tuple is None:
+        # Download each image individually using its own bbox
+        downloaded_files = []
+        for date in available_dates:
+            try:
+                # Search for images on this date
+                search_results = api.search_images(
+                    collection="byoc",
+                    byoc_id=byoc_id,
+                    time_interval=(date, date),
+                    bbox=bbox_tuple  # Using collection bbox for search
+                )
+                
+                if not search_results:
+                    click.echo(f"No images found for date {date}")
+                    continue
+                
+                # Download each image using its own bbox
+                for result in search_results:
+                    image_id = result["id"]
+                    click.echo(f"Downloading image {image_id} from {date}...")
+                    
+                    # The bbox will be retrieved from the image metadata
+                    output_path = api.download_image(
+                        image_id=image_id,
+                        collection="byoc",
+                        byoc_id=byoc_id,
+                        bbox=None,  # Let the API retrieve the bbox from metadata
+                        output_dir=output_dir,
+                        size=tuple(map(int, size.split(","))),
+                        evalscript=evalscript,
+                        specified_bands=specified_bands,
+                        nodata_value=nodata,
+                        scale_metadata=scale,
+                        data_type=data_type.upper()
+                    )
+                    
+                    downloaded_files.append(output_path)
+                    click.echo(f"Downloaded to: {output_path}")
+            
+            except Exception as e:
+                click.echo(f"Error processing date {date}: {e}")
+                if debug:
+                    import traceback
+                    click.echo(traceback.format_exc())
+    else:
+        # Use the existing timeseries download function
+        downloaded_files = api.download_byoc_timeseries(
+            byoc_id=byoc_id,
+            bbox=bbox_tuple,
+            time_interval=(start_date, end_date),
+            output_dir=output_dir,
+            size=tuple(map(int, size.split(","))),
+            time_difference_days=effective_time_difference,
+            filename_template=filename_template,
+            evalscript=evalscript,
+            auto_discover_bands=auto_discover_bands,
+            specified_bands=specified_bands,
+            nodata_value=nodata,
+            scale_metadata=scale,
+            data_type=data_type.upper()
+        )
     
     if downloaded_files:
         click.echo(f"Successfully downloaded {len(downloaded_files)} images:")

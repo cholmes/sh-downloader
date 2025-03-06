@@ -117,8 +117,8 @@ class ProcessAPI:
     def process_image(
         self,
         collection: str,
-        bbox: Tuple[float, float, float, float],
         output_path: str,
+        bbox: Optional[Tuple[float, float, float, float]] = None,
         image_id: Optional[str] = None,
         date: Optional[str] = None,
         size: Tuple[int, int] = (512, 512),
@@ -133,9 +133,6 @@ class ProcessAPI:
         # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
-        # Create a BBox object
-        bbox_obj = BBox(bbox, crs=CRS.WGS84)
-        
         # Determine the data collection
         if collection.lower() == "byoc" and byoc_id:
             data_collection = DataCollection.define_byoc(byoc_id)
@@ -148,6 +145,20 @@ class ProcessAPI:
                     data_collection = DataCollection.define_byoc(byoc_id)
                 else:
                     raise ValueError(f"Unsupported collection: {collection}")
+        
+        # If bbox is not provided, try to get it from the image metadata
+        if bbox is None:
+            if image_id:
+                logger.info(f"No bbox provided, attempting to retrieve from image metadata for {image_id}")
+                bbox = self._get_bbox_from_image_id(collection, image_id, byoc_id)
+            elif date:
+                logger.warning("No bbox provided and cannot automatically determine bbox from date alone")
+                raise ValueError("bbox must be provided when using date parameter without image_id")
+            else:
+                raise ValueError("Either bbox or image_id must be provided")
+        
+        # Create a BBox object
+        bbox_obj = BBox(bbox, crs=CRS.WGS84)
         
         # Create evalscript if not provided
         if not evalscript:
@@ -268,3 +279,71 @@ class ProcessAPI:
         
         logger.info(f"Image saved to {output_path}")
         return output_path 
+    
+    def _get_bbox_from_image_id(
+        self, 
+        collection: str, 
+        image_id: str,
+        byoc_id: Optional[str] = None
+    ) -> Tuple[float, float, float, float]:
+        """Get the bounding box for an image from its metadata.
+        
+        Args:
+            collection: The collection name
+            image_id: The image identifier
+            byoc_id: The BYOC collection ID (if applicable)
+            
+        Returns:
+            Tuple containing (min_x, min_y, max_x, max_y) in WGS84 coordinates
+        
+        Raises:
+            ValueError: If the bbox cannot be determined
+        """
+        try:
+            # Try to use the Catalog API if available
+            from sentinelhub import CatalogAPI
+            
+            catalog = CatalogAPI(config=self.sh_config)
+            
+            # Determine the collection ID based on the collection name
+            if collection.lower() == "byoc" and byoc_id:
+                collection_id = byoc_id
+            else:
+                # Map collection names to Catalog API collection IDs
+                collection_mapping = {
+                    "SENTINEL2_L1C": "sentinel-2-l1c",
+                    "SENTINEL2_L2A": "sentinel-2-l2a",
+                    "SENTINEL1_IW": "sentinel-1-grd",
+                    # Add more mappings as needed
+                }
+                collection_id = collection_mapping.get(collection.upper().replace("-", "_"))
+                
+                if not collection_id:
+                    raise ValueError(f"Cannot map collection {collection} to a Catalog API collection ID")
+            
+            # Get the item metadata
+            response = catalog.get_collection_item(collection_id, image_id)
+            
+            if not response or "geometry" not in response:
+                raise ValueError(f"No geometry found in metadata for image {image_id}")
+            
+            # Extract the bbox from the geometry
+            geometry = response["geometry"]
+            if "bbox" in response:
+                # Use the bbox if directly available
+                return tuple(response["bbox"])
+            elif geometry["type"] == "Polygon":
+                # Calculate bbox from polygon coordinates
+                coords = geometry["coordinates"][0]  # Outer ring
+                lons = [p[0] for p in coords]
+                lats = [p[1] for p in coords]
+                return (min(lons), min(lats), max(lons), max(lats))
+            else:
+                raise ValueError(f"Unsupported geometry type: {geometry['type']}")
+                
+        except ImportError:
+            logger.warning("CatalogAPI not available, cannot retrieve bbox from image ID")
+            raise ValueError("Cannot determine bbox: CatalogAPI not available")
+        except Exception as e:
+            logger.error(f"Error retrieving bbox for image {image_id}: {str(e)}")
+            raise ValueError(f"Cannot determine bbox for image {image_id}: {str(e)}")
