@@ -27,7 +27,7 @@ logger.addHandler(handler)
 @click.version_option()
 @click.option(
     "--debug/--no-debug",
-    default=True, 
+    default=False, 
     help="Enable debug logging",
 )
 @click.pass_context
@@ -53,218 +53,89 @@ def configure(ctx):
     config.configure_wizard()
 
 
-@cli.command()
-@click.option(
-    "--collection",
-    "-c",
-    type=click.Choice(
-        [
-            "sentinel-1-grd",
-            "sentinel-2-l1c",
-            "sentinel-2-l2a",
-            "sentinel-3-olci",
-            "sentinel-5p-l2",
-            "byoc",
-        ],
-        case_sensitive=False,
-    ),
-    required=True,
-    help="Sentinel data collection to download",
-)
-@click.option(
-    "--byoc-id",
-    help="BYOC collection ID (required if collection is 'byoc')",
-)
-@click.option(
-    "--image-id",
-    "-i",
-    help="Image ID to download",
-)
-@click.option(
-    "--date",
-    "-d",
-    help="Specific date to download (can be used instead of image-id for BYOC collections)",
-)
-@click.option(
-    "--start",
-    "-s",
-    help="Start date (YYYY-MM-DD). Defaults to 30 days ago.",
-)
-@click.option(
-    "--end",
-    "-e",
-    help="End date (YYYY-MM-DD). Defaults to today.",
-)
-@click.option(
-    "--bbox",
-    "-b",
-    required=False,
-    help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional if --image-id is provided.",
-    callback=parse_bbox,
-)
-@click.option(
-    "--max-cloud-cover",
-    "-m",
-    type=float,
-    help="Maximum cloud cover percentage (0-100). Only applies to optical sensors.",
-)
-@click.option(
-    "--output-dir",
-    "-o",
-    help="Directory to save downloaded files. Defaults to ./downloads",
-)
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=10,
-    help="Maximum number of images to download. Default is 10.",
-)
-@click.pass_context
-def download(
-    ctx,
-    collection: str,
-    byoc_id: Optional[str],
-    image_id: Optional[str],
-    date: Optional[str],
-    start: Optional[str],
-    end: Optional[str],
-    bbox: Optional[str],
-    max_cloud_cover: Optional[float],
-    output_dir: Optional[str],
-    limit: int,
-):
-    """Download satellite imagery from Sentinel Hub."""
-    debug = ctx.obj.get("DEBUG", False)
-    config = Config()
-    
-    # Check if configured
-    if not config.is_configured():
-        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
-        config.configure_wizard()
-    
-    # Check if BYOC ID is provided for BYOC collection
-    if collection.lower() == "byoc" and not byoc_id:
-        click.echo("Error: BYOC collection ID (--byoc-id) is required when using BYOC collection")
-        return
-    
-    # Set up API client with debug flag
-    api = SentinelHubAPI(config, debug=debug)
-    
-    # Set logger level based on debug flag
-    if debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled for download command")
-    else:
-        logger.setLevel(logging.INFO)
-    
-    # Set default output directory if not provided
-    if not output_dir:
-        output_dir = config.get("output_dir")
-    
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # If image_id is provided, download that specific image
-    if image_id:
-        if not bbox:
-            click.echo("Error: Bounding box (--bbox) is required when downloading a specific image")
-            return
-        
-        bbox_tuple = parse_bbox(bbox)
-        click.echo(f"Downloading image {image_id} from {collection}...")
-        
-        try:
-            output_path = api.download_image(
-                image_id=image_id,
-                collection=collection,
-                byoc_id=byoc_id,
-                bbox=bbox_tuple,
-                output_dir=output_dir
-            )
-            click.echo(f"Image downloaded to: {output_path}")
-        except Exception as e:
-            click.echo(f"Error downloading image: {e}")
-        
-        return
-    
-    # If date is provided, download image for that specific date
-    if date:
-        if not bbox:
-            click.echo("Error: Bounding box (--bbox) is required when downloading by date")
-            return
-        
-        bbox_tuple = parse_bbox(bbox)
-        click.echo(f"Downloading image for date {date} from {collection}...")
-        
-        try:
-            output_path = api.download_image(
-                image_id=None,
-                collection=collection,
-                byoc_id=byoc_id,
-                bbox=bbox_tuple,
-                output_dir=output_dir,
-                date=date
-            )
-            click.echo(f"Image downloaded to: {output_path}")
-        except Exception as e:
-            click.echo(f"Error downloading image: {e}")
-        
-        return
-    
-    # Otherwise, search for images and download them
-    # Parse date range
-    start_date, end_date = get_date_range(start, end)
-    click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
-    
-    # Parse bounding box if provided
-    bbox_tuple = None
-    if bbox:
-        bbox_tuple = parse_bbox(bbox)
-        click.echo(f"Bounding box: {bbox_tuple}")
-    else:
-        click.echo("Bounding box: Global")
-    
-    # Search for images
-    click.echo(f"Searching for {collection} images...")
-    search_results = api.search_images(
-        collection=collection,
-        time_interval=(start_date, end_date),
-        bbox=bbox_tuple,
-        max_cloud_cover=max_cloud_cover,
-        byoc_id=byoc_id,
-    )
-    
-    if not search_results:
-        click.echo("No images found matching the criteria.")
-        return
-    
-    # Limit the number of images to download
-    images_to_download = search_results[:limit]
-    click.echo(f"Found {len(search_results)} images. Downloading first {len(images_to_download)}...")
-    
-    # Download each image
-    for i, result in enumerate(images_to_download):
-        image_id = result["id"]
-        date = result.get("properties", {}).get("datetime", "unknown_date")
-        
-        click.echo(f"[{i+1}/{len(images_to_download)}] Downloading image {image_id} from {date}...")
-        
-        try:
-            if not bbox_tuple:
-                click.echo("  Skipping: Bounding box is required for download")
-                continue
-            
-            output_path = api.download_image(
-                image_id=image_id,
-                collection=collection,
-                byoc_id=byoc_id,
-                bbox=bbox_tuple,
-                output_dir=output_dir
-            )
-            click.echo(f"  Downloaded to: {output_path}")
-        except Exception as e:
-            click.echo(f"  Error: {e}")
+# @cli.command()
+# @click.option(
+#     "--collection",
+#     "-c",
+#     type=click.Choice(
+#         [
+#             "sentinel-1-grd",
+#             "sentinel-2-l1c",
+#             "sentinel-2-l2a",
+#             "sentinel-3-olci",
+#             "sentinel-5p-l2",
+#             "byoc",
+#         ],
+#         case_sensitive=False,
+#     ),
+#     required=True,
+#     help="Sentinel data collection to download",
+# )
+# @click.option(
+#     "--byoc-id",
+#     help="BYOC collection ID (required if collection is 'byoc')",
+# )
+# @click.option(
+#     "--image-id",
+#     "-i",
+#     help="Image ID to download",
+# )
+# @click.option(
+#     "--date",
+#     "-d",
+#     help="Specific date to download (can be used instead of image-id for BYOC collections)",
+# )
+# @click.option(
+#     "--start",
+#     "-s",
+#     help="Start date (YYYY-MM-DD). Defaults to 30 days ago.",
+# )
+# @click.option(
+#     "--end",
+#     "-e",
+#     help="End date (YYYY-MM-DD). Defaults to today.",
+# )
+# @click.option(
+#     "--bbox",
+#     "-b",
+#     required=False,
+#     help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional if --image-id is provided.",
+#     callback=parse_bbox,
+# )
+# @click.option(
+#     "--max-cloud-cover",
+#     "-m",
+#     type=float,
+#     help="Maximum cloud cover percentage (0-100). Only applies to optical sensors.",
+# )
+# @click.option(
+#     "--output-dir",
+#     "-o",
+#     help="Directory to save downloaded files. Defaults to ./downloads",
+# )
+# @click.option(
+#     "--limit",
+#     "-l",
+#     type=int,
+#     default=10,
+#     help="Maximum number of images to download. Default is 10.",
+# )
+# @click.pass_context
+# def download(
+#     ctx,
+#     collection: str,
+#     byoc_id: Optional[str],
+#     image_id: Optional[str],
+#     date: Optional[str],
+#     start: Optional[str],
+#     end: Optional[str],
+#     bbox: Optional[str],
+#     max_cloud_cover: Optional[float],
+#     output_dir: Optional[str],
+#     limit: int,
+# ):
+#     """Download satellite imagery from Sentinel Hub."""
+#     ... rest of the download command function ...
 
 
 @cli.command()

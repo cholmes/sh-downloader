@@ -45,7 +45,7 @@ dev = [
 "Bug Tracker" = "https://github.com/yourusername/sentinelhub-downloader/issues"
 
 [project.scripts]
-shdownload = "sentinelhub_downloader.cli:cli"
+shdown = "sentinelhub_downloader.cli:cli"
 
 [tool.black]
 line-length = 88
