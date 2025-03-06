@@ -130,6 +130,13 @@ class ProcessAPI:
         scale_metadata: Optional[float] = None,
     ) -> str:
         """Process and download an image using the sentinelhub-py library."""
+        # Silence GDAL warnings about exceptions
+        try:
+            from osgeo import gdal
+            gdal.UseExceptions()  # Explicitly enable exceptions
+        except ImportError:
+            pass  # GDAL not available, no need to worry about warnings
+        
         # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
@@ -254,9 +261,6 @@ class ProcessAPI:
         # If we need to add scale metadata and GDAL is available, post-process the file
         if scale_metadata is not None:
             try:
-                # Import GDAL here to avoid making it a hard dependency
-                from osgeo import gdal
-                
                 # Open the file to add metadata
                 ds = gdal.Open(output_path, gdal.GA_Update)
                 if ds is not None:
@@ -276,6 +280,59 @@ class ProcessAPI:
                 logger.warning("GDAL not available, cannot set scale metadata")
             except Exception as e:
                 logger.warning(f"Error setting metadata: {e}")
+        
+        # After writing the initial GeoTIFF, convert it to a COG
+        try:
+            from osgeo import gdal
+            
+            # Create a temporary filename for the COG
+            temp_output_path = output_path + ".temp.tif"
+            
+            # Move the original file to the temporary path
+            os.rename(output_path, temp_output_path)
+            
+            # Calculate statistics on the original file before converting to COG
+            ds = gdal.Open(temp_output_path)
+            for i in range(1, ds.RasterCount + 1):
+                band = ds.GetRasterBand(i)
+                band.ComputeStatistics(False)  # False = accurate statistics
+            ds = None
+            
+            # Convert to COG
+            gdal_options = [
+                '-co', 'COMPRESS=LZW',
+                '-co', 'PREDICTOR=2',
+                '-co', 'TILED=YES',
+                '-co', 'BLOCKXSIZE=256',
+                '-co', 'BLOCKYSIZE=256',
+                '-co', 'COPY_SRC_OVERVIEWS=YES',
+                '-co', 'BIGTIFF=IF_SAFER',
+                '-co', 'INTERLEAVE=PIXEL',
+                '-stats'  # Include statistics in the output
+            ]
+            
+            # Add overviews if they don't exist
+            ds = gdal.Open(temp_output_path)
+            if ds.GetRasterBand(1).GetOverviewCount() == 0:
+                gdal.SetConfigOption('COMPRESS_OVERVIEW', 'LZW')
+                ds.BuildOverviews("NEAREST", [2, 4, 8, 16])
+            ds = None
+            
+            # Create the COG
+            gdal.Translate(output_path, temp_output_path, options=gdal_options)
+            
+            # Remove the temporary file
+            os.remove(temp_output_path)
+            
+            logger.debug(f"Converted output to Cloud-Optimized GeoTIFF with statistics")
+            
+        except ImportError:
+            logger.warning("GDAL not available, cannot convert to Cloud-Optimized GeoTIFF")
+        except Exception as e:
+            logger.warning(f"Error converting to Cloud-Optimized GeoTIFF: {e}")
+            # If conversion fails, ensure the original file is preserved
+            if os.path.exists(temp_output_path) and not os.path.exists(output_path):
+                os.rename(temp_output_path, output_path)
         
         return output_path 
     
