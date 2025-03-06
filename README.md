@@ -24,7 +24,7 @@ and some iterative approach.
 Clone the repository and then install the package:
 
 ```bash
-pip install .
+pip install sh-downloader
 ```
 
 ## Configuration
