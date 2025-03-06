@@ -61,7 +61,7 @@ class MetadataAPI:
         """
         band_info = {}
         
-        # Try STAC format first
+        # Try STAC format first (item_assets format)
         if "item_assets" in collection_info:
             item_assets = collection_info["item_assets"]
             for asset_name, asset_info in item_assets.items():
@@ -92,6 +92,35 @@ class MetadataAPI:
                 
                 band_info[asset_name] = band_data
         
+        # Try BYOC STAC format (summaries with eo:bands and raster:bands)
+        elif "summaries" in collection_info and "eo:bands" in collection_info["summaries"]:
+            eo_bands = collection_info["summaries"]["eo:bands"]
+            raster_bands = collection_info["summaries"].get("raster:bands", [])
+            
+            # Create band info for each band
+            for i, band_meta in enumerate(eo_bands):
+                band_name = band_meta.get("name")
+                if not band_name:
+                    logger.warning(f"Band at index {i} has no name, skipping")
+                    continue
+                    
+                # Get corresponding raster band info if available
+                raster_info = {} 
+                if i < len(raster_bands):
+                    raster_info = raster_bands[i]
+                    
+                band_data = {
+                    "name": band_name,
+                    "description": band_meta.get("description", ""),
+                    "data_type": raster_info.get("data_type"),
+                    "nodata": raster_info.get("nodata"),
+                    "unit": band_meta.get("unit"),
+                    "scale": raster_info.get("scale"),
+                    "offset": raster_info.get("offset")
+                }
+                
+                band_info[band_name] = band_data
+        
         # Try BYOC format
         elif "data" in collection_info and "additionalData" in collection_info["data"]:
             additional_data = collection_info["data"]["additionalData"]
@@ -111,30 +140,58 @@ class MetadataAPI:
                     }
                     band_info[band_name] = info
         
+        # Log the extraction result
+        if band_info:
+            logger.debug(f"Extracted band info for {len(band_info)} bands: {list(band_info.keys())}")
+        else:
+            logger.debug("No band information found in collection metadata")
+        
         return band_info
     
     def get_collection_data_type(self, collection_info: Dict[str, Any]) -> str:
-        """Extract default data type from collection metadata.
+        """Extract the data type from collection metadata.
         
         Args:
-            collection_info: Collection metadata
+            collection_info: Collection metadata from STAC or BYOC API
             
         Returns:
-            Data type string or "AUTO" if not found
+            Data type if available, "AUTO" otherwise
         """
-        band_info = self.extract_band_info(collection_info)
+        # Try STAC format with item_assets
+        if "item_assets" in collection_info:
+            for asset_name, asset_info in collection_info["item_assets"].items():
+                if "raster:bands" in asset_info and asset_info["raster:bands"]:
+                    band = asset_info["raster:bands"][0]
+                    if "data_type" in band:
+                        return band["data_type"].upper()
         
-        # Look for a consistent data type across bands
-        data_types = set()
-        for band, info in band_info.items():
-            if info.get("data_type"):
-                data_types.add(info["data_type"])
+        # Try BYOC STAC format with summaries
+        if "summaries" in collection_info and "raster:bands" in collection_info["summaries"]:
+            raster_bands = collection_info["summaries"]["raster:bands"]
+            if raster_bands and len(raster_bands) > 0:
+                # For simplicity, use the first band's data type
+                if "data_type" in raster_bands[0]:
+                    data_type = raster_bands[0]["data_type"].upper()
+                    logger.debug(f"Found data type in STAC summaries: {data_type}")
+                    return data_type
         
-        # Return the first data type if there's only one
-        if len(data_types) == 1:
-            return next(iter(data_types))
+        # Try BYOC format
+        if "data" in collection_info and "additionalData" in collection_info["data"]:
+            additional_data = collection_info["data"]["additionalData"]
+            if "bands" in additional_data:
+                bands = additional_data["bands"]
+                for band_name, band_data in bands.items():
+                    if "sampleFormat" in band_data:
+                        sample_format = band_data["sampleFormat"]
+                        # Map sample format to data type
+                        if sample_format == "UINT8":
+                            return "UINT8"
+                        elif sample_format == "UINT16":
+                            return "UINT16"
+                        elif sample_format in ["FLOAT32", "FLOAT64"]:
+                            return "FLOAT32"
         
-        # Otherwise return AUTO
+        logger.debug("No data type found in collection metadata, using AUTO")
         return "AUTO"
     
     def get_collection_band_names(self, collection_info: Dict[str, Any]) -> List[str]:
@@ -150,25 +207,41 @@ class MetadataAPI:
         return list(band_info.keys())
     
     def get_collection_nodata_value(self, collection_info: Dict[str, Any]) -> Optional[float]:
-        """Extract common nodata value from collection metadata.
+        """Extract the nodata value from collection metadata.
         
         Args:
-            collection_info: Collection metadata
+            collection_info: Collection metadata from STAC or BYOC API
             
         Returns:
-            Nodata value or None if not found or inconsistent
+            Nodata value if available, None otherwise
         """
-        band_info = self.extract_band_info(collection_info)
+        # Try STAC format with item_assets
+        if "item_assets" in collection_info:
+            for asset_name, asset_info in collection_info["item_assets"].items():
+                if "raster:bands" in asset_info and asset_info["raster:bands"]:
+                    band = asset_info["raster:bands"][0]
+                    if "nodata" in band:
+                        return band["nodata"]
         
-        # Look for a consistent nodata value across bands
-        nodata_values = set()
-        for band, info in band_info.items():
-            if info.get("nodata") is not None:
-                nodata_values.add(info["nodata"])
+        # Try BYOC STAC format with summaries
+        if "summaries" in collection_info and "raster:bands" in collection_info["summaries"]:
+            raster_bands = collection_info["summaries"]["raster:bands"]
+            if raster_bands and len(raster_bands) > 0:
+                # For simplicity, use the first band's nodata value
+                # In a more sophisticated implementation, we might want to handle multiple different nodata values
+                if "nodata" in raster_bands[0]:
+                    nodata_value = raster_bands[0]["nodata"]
+                    logger.debug(f"Found nodata value in STAC summaries: {nodata_value}")
+                    return nodata_value
         
-        # Return the first nodata value if there's only one
-        if len(nodata_values) == 1:
-            return next(iter(nodata_values))
+        # Try BYOC format
+        if "data" in collection_info and "additionalData" in collection_info["data"]:
+            additional_data = collection_info["data"]["additionalData"]
+            if "bands" in additional_data:
+                bands = additional_data["bands"]
+                for band_name, band_data in bands.items():
+                    if "noData" in band_data:
+                        return band_data["noData"]
         
-        # Otherwise return None
+        logger.debug("No nodata value found in collection metadata")
         return None 

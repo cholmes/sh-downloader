@@ -51,6 +51,83 @@ class BYOCAPI:
         logger.debug(f"Downloading BYOC time series for collection ID: {byoc_id}")
         logger.debug(f"Time interval: {time_interval[0]} to {time_interval[1]}")
         
+        # Default output directory
+        if output_dir is None:
+            output_dir = "./downloads"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Default filename template
+        if filename_template is None:
+            filename_template = "BYOC_{date}.tiff"
+        
+        # If no evalscript is provided and no bands are specified, try to auto-discover bands
+        if not evalscript and not specified_bands and auto_discover_bands:
+            try:
+                # First try to get collection information from STAC catalog
+                logger.debug(f"Attempting to auto-discover bands for collection: {byoc_id}")
+                stac_collection_id = f"byoc-{byoc_id}"
+                
+                # Get STAC collection info
+                stac_info = self.metadata_api.get_stac_info(stac_collection_id)
+                logger.info(f"STAC info: {stac_info}")
+                # Extract band information using the metadata API
+                band_info = self.metadata_api.extract_band_info(stac_info)
+                logger.info(f"Band info: {band_info}")
+                
+                if band_info:
+                    # Get the band names
+                    specified_bands = list(band_info.keys())
+                    logger.info(f"Auto-discovered bands from STAC catalog: {specified_bands}")
+                    
+                    # Get data type if not specified
+                    if data_type == "AUTO":
+                        discovered_data_type = self.metadata_api.get_collection_data_type(stac_info)
+                        if discovered_data_type != "AUTO":
+                            data_type = discovered_data_type
+                            logger.info(f"Auto-discovered data type: {data_type}")
+                    
+                    # Get nodata value if not specified
+                    if nodata_value is None:
+                        discovered_nodata = self.metadata_api.get_collection_nodata_value(stac_info)
+                        if discovered_nodata is not None:
+                            nodata_value = discovered_nodata
+                            logger.info(f"Auto-discovered nodata value: {nodata_value}")
+                else:
+                    logger.warning("No band information found in STAC catalog")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to auto-discover bands from STAC catalog: {e}")
+                
+                # Try BYOC API as fallback
+                try:
+                    logger.debug("Trying BYOC API as fallback for band discovery")
+                    byoc_info = self.metadata_api.get_byoc_info(byoc_id)
+                    
+                    # Extract band information
+                    band_info = self.metadata_api.extract_band_info(byoc_info)
+                    
+                    if band_info:
+                        specified_bands = list(band_info.keys())
+                        logger.info(f"Auto-discovered bands from BYOC API: {specified_bands}")
+                    else:
+                        logger.warning("Failed to auto-discover bands from BYOC API")
+                except Exception as e2:
+                    logger.warning(f"Failed to auto-discover bands from BYOC API: {e2}")
+        
+        # If we still don't have bands specified, use defaults
+        if not specified_bands and not evalscript:
+            logger.warning("Could not auto-discover bands and none were specified. Using default RGB bands.")
+            specified_bands = ["B04", "B03", "B02"]  # Default RGB
+        
+        # Use specified bands for evalscript creation if no evalscript provided
+        if not evalscript and specified_bands:
+            logger.debug(f"Creating evalscript for bands: {specified_bands}")
+            evalscript = self.process_api.create_dynamic_evalscript(specified_bands, data_type=data_type)
+        elif not evalscript:
+            # Fallback to default evalscript
+            logger.debug("Using default evalscript")
+            evalscript = self.process_api._get_default_evalscript()
+        
         # Get available dates
         available_dates = self.catalog_api.get_available_dates(
             collection="byoc",
@@ -64,43 +141,9 @@ class BYOCAPI:
             logger.warning("No available dates found for the specified parameters")
             return []
         
-        # Default output directory
-        if output_dir is None:
-            output_dir = "./downloads"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Default filename template
-        if filename_template is None:
-            filename_template = "BYOC_{date}.tiff"
-        
-        # If no evalscript is provided, create one based on the bands
-        if not evalscript:
-            if auto_discover_bands and not specified_bands:
-                # Try to discover bands from metadata
-                try:
-                    band_info = self.metadata_api.get_byoc_info(byoc_id)
-                    if band_info and 'bands' in band_info:
-                        specified_bands = [b['name'] for b in band_info['bands']]
-                        logger.debug(f"Auto-discovered bands: {specified_bands}")
-                except Exception as e:
-                    logger.warning(f"Failed to auto-discover bands: {e}")
-                    
-                    # Fallback to specified bands if provided
-                    if not specified_bands:
-                        logger.debug("Using default bands")
-                        specified_bands = ["B04", "B03", "B02"]  # Default fallback
-            
-            # Use specified bands for evalscript creation
-            if specified_bands:
-                logger.debug(f"Using specified bands: {specified_bands}")
-                evalscript = self.process_api.create_dynamic_evalscript(specified_bands, data_type=data_type)
-            else:
-                # Use default evalscript
-                evalscript = self.process_api._get_default_evalscript()
-        
         logger.info(f"Found {len(available_dates)} dates with images")
         if specified_bands:
-            logger.info(f"Using specified bands: {specified_bands}")
+            logger.info(f"Using bands: {specified_bands}")
         
         downloaded_files = []
         
