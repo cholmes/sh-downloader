@@ -149,7 +149,7 @@ class ProcessAPI:
         # If bbox is not provided, try to get it from the image metadata
         if bbox is None:
             if image_id:
-                logger.info(f"No bbox provided, attempting to retrieve from image metadata for {image_id}")
+                logger.debug(f"No bbox provided, attempting to retrieve from image metadata for {image_id}")
                 bbox = self._get_bbox_from_image_id(collection, image_id, byoc_id)
             elif date:
                 logger.warning("No bbox provided and cannot automatically determine bbox from date alone")
@@ -277,7 +277,6 @@ class ProcessAPI:
             except Exception as e:
                 logger.warning(f"Error setting metadata: {e}")
         
-        logger.info(f"Image saved to {output_path}")
         return output_path 
     
     def _get_bbox_from_image_id(

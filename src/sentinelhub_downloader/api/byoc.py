@@ -69,29 +69,29 @@ class BYOCAPI:
                 
                 # Get STAC collection info
                 stac_info = self.metadata_api.get_stac_info(stac_collection_id)
-                logger.info(f"STAC info: {stac_info}")
+                logger.debug(f"STAC info: {stac_info}")
                 # Extract band information using the metadata API
                 band_info = self.metadata_api.extract_band_info(stac_info)
-                logger.info(f"Band info: {band_info}")
+                logger.debug(f"Band info: {band_info}")
                 
                 if band_info:
                     # Get the band names
                     specified_bands = list(band_info.keys())
-                    logger.info(f"Auto-discovered bands from STAC catalog: {specified_bands}")
+                    logger.debug(f"Auto-discovered bands from STAC catalog: {specified_bands}")
                     
                     # Get data type if not specified
                     if data_type == "AUTO":
                         discovered_data_type = self.metadata_api.get_collection_data_type(stac_info)
                         if discovered_data_type != "AUTO":
                             data_type = discovered_data_type
-                            logger.info(f"Auto-discovered data type: {data_type}")
+                            logger.debug(f"Auto-discovered data type: {data_type}")
                     
                     # Get nodata value if not specified
                     if nodata_value is None:
                         discovered_nodata = self.metadata_api.get_collection_nodata_value(stac_info)
                         if discovered_nodata is not None:
                             nodata_value = discovered_nodata
-                            logger.info(f"Auto-discovered nodata value: {nodata_value}")
+                            logger.debug(f"Auto-discovered nodata value: {nodata_value}")
                 else:
                     logger.warning("No band information found in STAC catalog")
                     
@@ -108,7 +108,7 @@ class BYOCAPI:
                     
                     if band_info:
                         specified_bands = list(band_info.keys())
-                        logger.info(f"Auto-discovered bands from BYOC API: {specified_bands}")
+                        logger.debug(f"Auto-discovered bands from BYOC API: {specified_bands}")
                     else:
                         logger.warning("Failed to auto-discover bands from BYOC API")
                 except Exception as e2:
@@ -141,9 +141,9 @@ class BYOCAPI:
             logger.warning("No available dates found for the specified parameters")
             return []
         
-        logger.info(f"Found {len(available_dates)} dates with images")
+        logger.debug(f"Found {len(available_dates)} dates with images")
         if specified_bands:
-            logger.info(f"Using bands: {specified_bands}")
+            logger.debug(f"Using bands: {specified_bands}")
         
         downloaded_files = []
         

@@ -668,12 +668,25 @@ def byoc(
                     image_id = result["id"]
                     click.echo(f"Downloading image {image_id} from {date}...")
                     
-                    # The bbox will be retrieved from the image metadata
+                    # Extract bbox from the search result if available
+                    image_bbox = None
+                    if "bbox" in result:
+                        image_bbox = tuple(result["bbox"])
+                        click.echo(f"  Using bbox from search result: {image_bbox}")
+                    elif "geometry" in result and result["geometry"]["type"] == "Polygon":
+                        # Calculate bbox from polygon coordinates
+                        coords = result["geometry"]["coordinates"][0]  # Outer ring
+                        lons = [p[0] for p in coords]
+                        lats = [p[1] for p in coords]
+                        image_bbox = (min(lons), min(lats), max(lons), max(lats))
+                        click.echo(f"  Calculated bbox from geometry: {image_bbox}")
+                    
+                    # The bbox will be retrieved from the image metadata if not available in search result
                     output_path = api.download_image(
                         image_id=image_id,
                         collection="byoc",
                         byoc_id=byoc_id,
-                        bbox=None,  # Let the API retrieve the bbox from metadata
+                        bbox=image_bbox,  # Use bbox from search result if available
                         output_dir=output_dir,
                         size=tuple(map(int, size.split(","))),
                         evalscript=evalscript,
@@ -684,7 +697,7 @@ def byoc(
                     )
                     
                     downloaded_files.append(output_path)
-                    click.echo(f"Downloaded to: {output_path}")
+                    click.echo(f"  Downloaded to: {output_path}")
             
             except Exception as e:
                 click.echo(f"Error processing date {date}: {e}")
