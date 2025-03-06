@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sentinelhub-downloader"
 version = "0.1.0"
-description = "A command-line tool to download GeoTIFF data from Sentinel Hub"
+description = "A command-line tool to download collections from Sentinel Hub as GeoTIFF's"
 readme = "README.md"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Chris Holmes", email = "cholmes@planet.com"}
 ]
 license = {text = "MIT"}
 classifiers = [
@@ -30,6 +30,7 @@ dependencies = [
     "requests>=2.27.0",
     "tqdm>=4.64.0",
     "rasterio>=1.2.0",
+    "numpy>=1.20.0",
 ]
 
 [project.optional-dependencies]
@@ -39,10 +40,13 @@ dev = [
     "isort>=5.10.0",
     "flake8>=4.0.0",
 ]
+gdal = [
+    "gdal>=3.0.0",
+]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/sentinelhub-downloader"
-"Bug Tracker" = "https://github.com/yourusername/sentinelhub-downloader/issues"
+"Homepage" = "https://github.com/cholmes/sh-downloader"
+"Bug Tracker" = "https://github.com/cholmes/sh-downloader/issues"
 
 [project.scripts]
 shdown = "sentinelhub_downloader.cli:cli"

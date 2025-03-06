@@ -74,24 +74,30 @@ shdown search --help
 
 Usage: shdown search [OPTIONS]
 
-  Search for available images.
+  Search for available satellite imagery without downloading.
 
 Options:
-  --collection TEXT              Collection name (e.g., sentinel-2-l2a)
-                                 [required]
-  --bbox FLOAT...                Bounding box as min_lon min_lat max_lon
-                                 max_lat  [required]
-  --time-from TEXT               Start date (YYYY-MM-DD)  [required]
-  --time-to TEXT                 End date (YYYY-MM-DD)  [required]
-  --byoc-id TEXT                 BYOC collection ID (required if collection is
-                                 'byoc')
-  --time-difference-days INTEGER
-                                 Minimum days between images
-  --help                         Show this message and exit.
+  -c, --collection [sentinel-1-grd|sentinel-2-l1c|sentinel-2-l2a|sentinel-3-olci|sentinel-5p-l2|byoc]
+                                  Sentinel data collection to search
+                                  [required]
+  --byoc-id TEXT                  BYOC collection ID (required if collection
+                                  is 'byoc')
+  -s, --start TEXT                Start date (YYYY-MM-DD). Defaults to 30 days
+                                  ago.
+  -e, --end TEXT                  End date (YYYY-MM-DD). Defaults to today.
+  -b, --bbox TEXT                 Bounding box as
+                                  min_lon,min_lat,max_lon,max_lat. Default is
+                                  global.
+  -m, --max-cloud-cover FLOAT     Maximum cloud cover percentage (0-100). Only
+                                  applies to optical sensors.
+  -l, --limit INTEGER             Maximum number of results to display.
+                                  Default is 10.
+  --help                          Show this message and exit.
 ```
 
 Sample output:
 
+```
 Found 8 images:
 2023-01-30T10:20:19Z - Cloud cover: 0.00%
 2023-01-27T10:30:21Z - Cloud cover: 1.23%
@@ -101,6 +107,7 @@ Found 8 images:
 2023-01-17T10:30:21Z - Cloud cover: 3.45%
 2023-01-15T10:20:19Z - Cloud cover: 1.78%
 2023-01-12T10:30:21Z - Cloud cover: 0.89%
+```
 
 ### Download a specific image
 
@@ -274,3 +281,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - clean up extra gdal files
 - option to provide a template for file naming
 - show progress as images are downloading / completing
+- make it so 'search' works nicer with byoc (same command, detect uuid and use it as id)
