@@ -307,7 +307,7 @@ class ProcessAPI:
                 '-co', 'BLOCKYSIZE=256',
                 '-co', 'COPY_SRC_OVERVIEWS=YES',
                 '-co', 'BIGTIFF=IF_SAFER',
-                '-co', 'INTERLEAVE=PIXEL',
+                '-co', 'INTERLEAVE=PIXEL',  # Include statistics in the output
                 '-stats'  # Include statistics in the output
             ]
             
@@ -321,8 +321,29 @@ class ProcessAPI:
             # Create the COG
             gdal.Translate(output_path, temp_output_path, options=gdal_options)
             
-            # Remove the temporary file
+            # Clean up temporary files
             os.remove(temp_output_path)
+            
+            # Clean up auxiliary files
+            aux_xml = temp_output_path + ".aux.xml"
+            if os.path.exists(aux_xml):
+                os.remove(aux_xml)
+            
+            ovr_file = temp_output_path + ".ovr"
+            if os.path.exists(ovr_file):
+                os.remove(ovr_file)
+            
+            # Check for any other auxiliary files with similar patterns
+            temp_dir = os.path.dirname(temp_output_path)
+            temp_base = os.path.basename(temp_output_path)
+            for filename in os.listdir(temp_dir):
+                if filename.startswith(temp_base + "."):
+                    full_path = os.path.join(temp_dir, filename)
+                    logger.debug(f"Removing auxiliary file: {full_path}")
+                    try:
+                        os.remove(full_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to remove auxiliary file {full_path}: {e}")
             
             logger.debug(f"Converted output to Cloud-Optimized GeoTIFF with statistics")
             
