@@ -86,101 +86,69 @@ class CatalogAPI:
         )
         
         return results
-    
+
     def get_available_dates(
         self,
         collection: str,
         time_interval: Tuple[datetime, datetime],
         bbox: Optional[Tuple[float, float, float, float]] = None,
         byoc_id: Optional[str] = None,
-        time_difference_days: Optional[int] = None,
+        time_difference_days: Optional[int] = None
     ) -> List[datetime]:
-        """Get a list of dates with available images."""
-        # Use a maximum limit of 100 per request (STAC API restriction)
-        max_per_page = 100
-        all_results = []
+        """Get available dates for a collection in a time interval.
         
-        # Implement pagination
-        # First fetch with initial limit
+        Args:
+            collection: Collection name
+            time_interval: Tuple of (start_date, end_date)
+            bbox: Bounding box as (min_lon, min_lat, max_lon, max_lat)
+            byoc_id: BYOC collection ID (required when collection is 'byoc')
+            time_difference_days: If specified, filter dates to have at least this many days between them
+            
+        Returns:
+            List of available dates as datetime objects
+        """
+        logger.debug(f"Getting available dates for {collection} from {time_interval[0]} to {time_interval[1]}")
+        
+        # Search for images
         search_results = self.search_images(
             collection=collection,
             time_interval=time_interval,
             bbox=bbox,
             byoc_id=byoc_id,
-            limit=max_per_page
+            limit=1000  # Use a high limit to get all available dates
         )
-        all_results.extend(search_results)
         
-        print(f"Found {len(search_results)} images in first page")
-        # If we got a full page, we might need more pages
-        while len(search_results) == max_per_page and len(all_results) < 2000:
-            # Find the datetime of the last item to use as a filter
-            if not search_results:
-                break
-            
-            last_datetime = search_results[-1].get("properties", {}).get("datetime")
-            #print(f"Last datetime: {last_datetime}")
-            if not last_datetime:
-                break
-            
-            # Parse the datetime
-            try:
-                last_date = datetime.strptime(last_datetime, "%Y-%m-%dT%H:%M:%S.%fZ")
-            except ValueError:
-                try:
-                    last_date = datetime.strptime(last_datetime, "%Y-%m-%dT%H:%M:%SZ")
-                except ValueError:
-                    logger.warning(f"Could not parse date: {last_datetime}")
-                    break
-            
-            # Create a new time interval from the last date to the end date
-            # Add a tiny offset to exclude the last result from previous page
-            new_start = last_date + timedelta(milliseconds=1)
-            _, end_date = time_interval
-            print(f"New start: {new_start}, End date: {end_date}")
-            # If new start is after end date, we're done
-            if new_start > end_date:
-                break
-            
-            # print(f"Fetching next page from {new_start} to {end_date}")
-            # Fetch the next page
-            search_results = self.search_images(
-                collection=collection,
-                time_interval=(new_start, end_date),
-                bbox=bbox,
-                byoc_id=byoc_id,
-                limit=max_per_page
-            )
-            all_results.extend(search_results)
+        if not search_results:
+            logger.debug("No images found for the specified parameters")
+            return []
         
-        # Extract dates from all results
+        # Extract dates from search results
         dates = []
-        for result in all_results:
-            datetime_str = result.get("properties", {}).get("datetime")
-            if datetime_str:
+        for result in search_results:
+            date_str = result.get("properties", {}).get("datetime", "")
+            if date_str:
                 try:
-                    date = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+                    # Parse the full ISO datetime string
+                    date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     dates.append(date)
-                except ValueError:
-                    try:
-                        date = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%SZ")
-                        dates.append(date)
-                    except ValueError:
-                        logger.warning(f"Could not parse date: {datetime_str}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to parse date '{date_str}': {e}")
         
         # Sort dates
         dates.sort()
         
-        # Filter by time difference if requested
+        # Apply time difference filter if specified
         if time_difference_days is not None and time_difference_days > 0:
             filtered_dates = []
-            last_date = None
+            last_added = None
             
             for date in dates:
-                if last_date is None or (date - last_date).days >= time_difference_days:
+                if last_added is None or (date - last_added).days >= time_difference_days:
                     filtered_dates.append(date)
-                    last_date = date
+                    last_added = date
             
-            return filtered_dates
+            logger.debug(f"Filtered from {len(dates)} to {len(filtered_dates)} dates using time difference of {time_difference_days} days")
+            dates = filtered_dates
         
-        return dates 
+        logger.debug(f"Found {len(dates)} available dates")
+        return dates
