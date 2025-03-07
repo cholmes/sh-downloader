@@ -262,10 +262,9 @@ def search(
 
 
 @cli.command()
-@click.option(
-    "--byoc-id",
-    required=True,
-    help="BYOC collection ID",
+@click.argument(
+    "byoc_id",
+    required=True
 )
 @click.option(
     "--image-id",
@@ -381,7 +380,10 @@ def byoc(
     scale: Optional[float],
     data_type: str,
 ):
-    """Download images from a BYOC collection."""
+    """Download images from a BYOC collection.
+    
+    BYOC_ID is the UUID of your Bring Your Own COG Collection.
+    """
     debug = ctx.obj.get("DEBUG", False)
     config = Config()
     
@@ -598,10 +600,9 @@ def byoc(
 
 
 @cli.command()
-@click.option(
-    "--collection-id",
-    required=True,
-    help="Collection ID to get information about (can be a standard collection ID or BYOC ID)",
+@click.argument(
+    "collection_id",
+    required=True
 )
 @click.option(
     "--raw/--formatted",
@@ -620,7 +621,10 @@ def info(
     raw: bool,
     byoc_api: bool,
 ):
-    """Get information about a collection (standard or BYOC)."""
+    """Get information about a collection (standard or BYOC).
+    
+    COLLECTION_ID can be a standard collection ID (e.g., sentinel-2-l2a) or a BYOC UUID.
+    """
     debug = ctx.obj.get("DEBUG", False)
     config = Config()
     
@@ -641,12 +645,22 @@ def info(
     
     # Check if the collection ID is a UUID (BYOC collection)
     is_uuid = False
-    try:
-        import uuid
-        uuid.UUID(collection_id)
-        is_uuid = True
-    except (ValueError, AttributeError):
-        pass
+    if '-' in collection_id and len(collection_id) >= 32:
+        try:
+            # Try to parse the first 36 characters as a UUID
+            import uuid
+            uuid_part = collection_id[:36] if len(collection_id) > 36 else collection_id
+            uuid.UUID(uuid_part)
+            is_uuid = True
+            # If we successfully parsed a UUID but the string is longer, trim it
+            if len(collection_id) > 36:
+                logger.debug(f"Trimming collection ID to valid UUID format: {uuid_part}")
+                collection_id = uuid_part
+        except (ValueError, AttributeError):
+            pass
+    
+    if debug:
+        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid}")
     
     # Determine which API to use
     if is_uuid and byoc_api:
