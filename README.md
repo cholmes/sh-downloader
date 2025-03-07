@@ -282,3 +282,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - option to provide a template for file naming
 - show progress as images are downloading / completing
 - make it so 'search' works nicer with byoc (same command, detect uuid and use it as id)
+- Try out cloud filtering for PS data, and if it works then check stac metadata for cloud cover dynamically
+- Checking of non-byoc collections, and raise error on bad collection names before getting 400 from api not recognizing (like hit collections end point. Perhaps get the list of collections on init? At least the non-byoc ones)
+- collection list (and filtering?) to get what collections to ask about.

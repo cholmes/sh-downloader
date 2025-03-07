@@ -5,8 +5,9 @@ import logging
 import os
 import sys
 import json
+import uuid
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 
 import click
 from tqdm import tqdm
@@ -21,6 +22,61 @@ handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+
+def is_uuid(collection_id: str) -> Tuple[bool, Optional[str]]:
+    """Check if a string is a UUID and return the valid UUID part if it is.
+    
+    Args:
+        collection_id: String to check
+        
+    Returns:
+        Tuple of (is_uuid, uuid_part) where uuid_part is the valid UUID if found, None otherwise
+    """
+    if '-' in collection_id and len(collection_id) >= 32:
+        try:
+            # Try to parse the first 36 characters as a UUID
+            uuid_part = collection_id[:36] if len(collection_id) > 36 else collection_id
+            uuid.UUID(uuid_part)
+            
+            # If we successfully parsed a UUID but the string is longer, return the valid part
+            if len(collection_id) > 36:
+                logger.warning(f"Trimming collection ID to valid UUID format: {uuid_part}")
+            
+            return True, uuid_part
+        except (ValueError, AttributeError):
+            pass
+    
+    return False, None
+
+
+def setup_api_from_context(ctx: click.Context) -> Tuple[SentinelHubAPI, bool]:
+    """Set up the API client from the Click context.
+    
+    Args:
+        ctx: Click context
+        
+    Returns:
+        Tuple of (api_client, debug_flag)
+    """
+    debug = ctx.obj.get("DEBUG", False)
+    config = Config()
+    
+    # Check if configured
+    if not config.is_configured():
+        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
+        config.configure_wizard()
+    
+    # Set up API client with debug flag
+    api = SentinelHubAPI(config, debug=debug)
+    
+    # Set logger level based on debug flag
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+    
+    return api, debug
 
 
 @click.group()
@@ -51,91 +107,6 @@ def configure(ctx):
     """Configure the Sentinel Hub Downloader with your credentials."""
     config = Config()
     config.configure_wizard()
-
-
-# @cli.command()
-# @click.option(
-#     "--collection",
-#     "-c",
-#     type=click.Choice(
-#         [
-#             "sentinel-1-grd",
-#             "sentinel-2-l1c",
-#             "sentinel-2-l2a",
-#             "sentinel-3-olci",
-#             "sentinel-5p-l2",
-#             "byoc",
-#         ],
-#         case_sensitive=False,
-#     ),
-#     required=True,
-#     help="Sentinel data collection to download",
-# )
-# @click.option(
-#     "--byoc-id",
-#     help="BYOC collection ID (required if collection is 'byoc')",
-# )
-# @click.option(
-#     "--image-id",
-#     "-i",
-#     help="Image ID to download",
-# )
-# @click.option(
-#     "--date",
-#     "-d",
-#     help="Specific date to download (can be used instead of image-id for BYOC collections)",
-# )
-# @click.option(
-#     "--start",
-#     "-s",
-#     help="Start date (YYYY-MM-DD). Defaults to 30 days ago.",
-# )
-# @click.option(
-#     "--end",
-#     "-e",
-#     help="End date (YYYY-MM-DD). Defaults to today.",
-# )
-# @click.option(
-#     "--bbox",
-#     "-b",
-#     required=False,
-#     help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional if --image-id is provided.",
-#     callback=parse_bbox,
-# )
-# @click.option(
-#     "--max-cloud-cover",
-#     "-m",
-#     type=float,
-#     help="Maximum cloud cover percentage (0-100). Only applies to optical sensors.",
-# )
-# @click.option(
-#     "--output-dir",
-#     "-o",
-#     help="Directory to save downloaded files. Defaults to ./downloads",
-# )
-# @click.option(
-#     "--limit",
-#     "-l",
-#     type=int,
-#     default=10,
-#     help="Maximum number of images to download. Default is 10.",
-# )
-# @click.pass_context
-# def download(
-#     ctx,
-#     collection: str,
-#     byoc_id: Optional[str],
-#     image_id: Optional[str],
-#     date: Optional[str],
-#     start: Optional[str],
-#     end: Optional[str],
-#     bbox: Optional[str],
-#     max_cloud_cover: Optional[float],
-#     output_dir: Optional[str],
-#     limit: int,
-# ):
-#     """Download satellite imagery from Sentinel Hub."""
-#     ... rest of the download command function ...
 
 
 @cli.command()
@@ -186,47 +157,16 @@ def search(
     
     COLLECTION_ID can be a standard collection ID (e.g., sentinel-2-l2a) or a BYOC UUID.
     """
-    debug = ctx.obj.get("DEBUG", False)
-    config = Config()
-    
-    # Check if configured
-    if not config.is_configured():
-        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
-        config.configure_wizard()
-    
-    # Set up API client with debug flag
-    api = SentinelHubAPI(config, debug=debug)
-    
-    # Set logger level based on debug flag
-    if debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled for search command")
-    else:
-        logger.setLevel(logging.INFO)
+    api, debug = setup_api_from_context(ctx)
     
     # Check if the collection ID is a UUID (BYOC collection)
-    is_uuid = False
-    byoc_id = None
-    if '-' in collection_id and len(collection_id) >= 32:
-        try:
-            # Try to parse the first 36 characters as a UUID
-            import uuid
-            uuid_part = collection_id[:36] if len(collection_id) > 36 else collection_id
-            uuid.UUID(uuid_part)
-            is_uuid = True
-            byoc_id = uuid_part
-            # If we successfully parsed a UUID but the string is longer, trim it
-            if len(collection_id) > 36:
-                logger.warning(f"Trimming collection ID to valid UUID format: {uuid_part}")
-                collection_id = uuid_part
-        except (ValueError, AttributeError):
-            pass
+    is_uuid_flag, byoc_id = is_uuid(collection_id)
     
     if debug:
-        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid}")
+        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid_flag}")
     
     # Determine the collection type
-    collection = "byoc" if is_uuid else collection_id
+    collection = "byoc" if is_uuid_flag else collection_id
     
     # Parse date range
     start_date, end_date = get_date_range(start, end)
@@ -236,7 +176,7 @@ def search(
     bbox_tuple = bbox  # bbox is already parsed by the callback
     
     # Search for images
-    if is_uuid:
+    if is_uuid_flag:
         click.echo(f"Searching for BYOC collection {byoc_id}...")
     else:
         click.echo(f"Searching for {collection} images...")
@@ -392,23 +332,15 @@ def byoc(
     
     BYOC_ID is the UUID of your Bring Your Own COG Collection.
     """
-    debug = ctx.obj.get("DEBUG", False)
-    config = Config()
+    api, debug = setup_api_from_context(ctx)
     
-    # Check if configured
-    if not config.is_configured():
-        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
-        config.configure_wizard()
+    # Validate BYOC ID is a UUID
+    is_uuid_flag, valid_byoc_id = is_uuid(byoc_id)
+    if not is_uuid_flag:
+        click.echo(f"Error: {byoc_id} does not appear to be a valid UUID for a BYOC collection")
+        return
     
-    # Set up API client with debug flag
-    api = SentinelHubAPI(config, debug=debug)
-    
-    # Set logger level based on debug flag
-    if debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled for BYOC command")
-    else:
-        logger.setLevel(logging.INFO)
+    byoc_id = valid_byoc_id
     
     # Parse date range
     start_date, end_date = get_date_range(start, end)
@@ -426,6 +358,23 @@ def byoc(
     if image_id:
         click.echo(f"Downloading specific image: {image_id}")
         try:
+            # Load evalscript from file if provided
+            evalscript = None
+            if evalscript_file:
+                try:
+                    with open(evalscript_file, "r") as f:
+                        evalscript = f.read()
+                    click.echo(f"Loaded evalscript from {evalscript_file}")
+                except Exception as e:
+                    click.echo(f"Error loading evalscript: {e}")
+                    return
+            
+            # Parse bands if provided
+            specified_bands = None
+            if bands:
+                specified_bands = [b.strip() for b in bands.split(",")]
+                click.echo(f"Using specified bands: {specified_bands}")
+            
             # If bbox is not provided, it will be retrieved from the image metadata
             output_path = api.download_image(
                 image_id=image_id,
@@ -478,29 +427,6 @@ def byoc(
             click.echo("Please provide a bbox for searching")
             return
     
-    # Get available dates
-    available_dates = api.get_available_dates(
-        collection="byoc",
-        byoc_id=byoc_id,
-        time_interval=(start_date, end_date),
-        bbox=bbox_tuple,
-        time_difference_days=effective_time_difference
-    )
-    
-    if not available_dates:
-        click.echo("No images found for the specified criteria")
-        return
-    
-    click.echo(f"Found {len(available_dates)} images")
-    
-    # Parse bands if provided
-    specified_bands = None
-    if bands:
-        specified_bands = [b.strip() for b in bands.split(",")]
-        click.echo(f"Using specified bands: {specified_bands}")
-        # Disable auto-discovery if bands are specified
-        auto_discover_bands = False
-    
     # Load evalscript from file if provided
     evalscript = None
     if evalscript_file:
@@ -512,6 +438,14 @@ def byoc(
             click.echo(f"Error loading evalscript: {e}")
             return
     
+    # Parse bands if provided
+    specified_bands = None
+    if bands:
+        specified_bands = [b.strip() for b in bands.split(",")]
+        click.echo(f"Using specified bands: {specified_bands}")
+        # Disable auto-discovery if bands are specified
+        auto_discover_bands = False
+    
     # If no evalscript is provided but bands are specified, create a dynamic evalscript
     if not evalscript and specified_bands:
         evalscript = api.create_dynamic_evalscript(specified_bands, data_type=data_type)
@@ -519,14 +453,26 @@ def byoc(
         if debug:
             click.echo(f"Evalscript:\n{evalscript}")
     
-    # Download images
-
-    
     # If we're using each image's own bbox, we need to modify the download approach
     if bbox_tuple is None:
+        # Get available dates
+        available_dates = api.get_available_dates(
+            collection="byoc",
+            byoc_id=byoc_id,
+            time_interval=(start_date, end_date),
+            bbox=bbox_tuple,  # Using collection bbox for search
+            time_difference_days=effective_time_difference
+        )
+        
+        if not available_dates:
+            click.echo("No images found for the specified criteria")
+            return
+        
+        click.echo(f"Found {len(available_dates)} dates with images")
+        
         # Download each image individually using its own bbox
         downloaded_files = []
-        for date in available_dates:
+        for date in tqdm(available_dates, desc="Downloading images", unit="date"):
             try:
                 # Search for images on this date
                 search_results = api.search_images(
@@ -565,7 +511,7 @@ def byoc(
                         byoc_id=byoc_id,
                         bbox=image_bbox,  # Use bbox from search result if available
                         output_dir=output_dir,
-                        size=tuple(map(int, size.split(","))),
+                        size=size_tuple,
                         evalscript=evalscript,
                         specified_bands=specified_bands,
                         nodata_value=nodata,
@@ -588,7 +534,7 @@ def byoc(
             bbox=bbox_tuple,
             time_interval=(start_date, end_date),
             output_dir=output_dir,
-            size=tuple(map(int, size.split(","))),
+            size=size_tuple,
             time_difference_days=effective_time_difference,
             filename_template=filename_template,
             evalscript=evalscript,
@@ -600,11 +546,9 @@ def byoc(
         )
     
     if downloaded_files:
-        click.echo(f"Successfully downloaded {len(downloaded_files)} images:")
-        for file_path in downloaded_files:
-            click.echo(f"  - {file_path}")
+        click.echo(f"Successfully downloaded {len(downloaded_files)} images")
     else:
-        click.echo("No images were downloaded.")
+        click.echo("No images were downloaded")
 
 
 @cli.command()
@@ -633,215 +577,112 @@ def info(
     
     COLLECTION_ID can be a standard collection ID (e.g., sentinel-2-l2a) or a BYOC UUID.
     """
-    debug = ctx.obj.get("DEBUG", False)
-    config = Config()
-    
-    # Check if configured
-    if not config.is_configured():
-        click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
-        config.configure_wizard()
-    
-    # Set up API client with debug flag
-    api = SentinelHubAPI(config, debug=debug)
-    
-    # Set logger level based on debug flag
-    if debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled for info command")
-    else:
-        logger.setLevel(logging.INFO)
+    api, debug = setup_api_from_context(ctx)
     
     # Check if the collection ID is a UUID (BYOC collection)
-    is_uuid = False
-    if '-' in collection_id and len(collection_id) >= 32:
-        try:
-            # Try to parse the first 36 characters as a UUID
-            import uuid
-            uuid_part = collection_id[:36] if len(collection_id) > 36 else collection_id
-            uuid.UUID(uuid_part)
-            is_uuid = True
-            # If we successfully parsed a UUID but the string is longer, trim it
-            if len(collection_id) > 36:
-                logger.debug(f"Trimming collection ID to valid UUID format: {uuid_part}")
-                collection_id = uuid_part
-        except (ValueError, AttributeError):
-            pass
+    is_uuid_flag, valid_uuid = is_uuid(collection_id)
     
     if debug:
-        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid}")
+        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid_flag}")
+    
+    if is_uuid_flag:
+        collection_id = valid_uuid
     
     # Determine which API to use
-    if is_uuid and byoc_api:
+    if is_uuid_flag and byoc_api:
         # Use BYOC API for BYOC collections if requested
         click.echo(f"Getting BYOC information for collection: {collection_id}")
         try:
             collection_info = api.get_byoc_info(collection_id)
             
             if raw:
-                # Display raw JSON
+                # Print raw JSON
                 click.echo(json.dumps(collection_info, indent=2))
             else:
-                # Display formatted information
-                if "data" in collection_info:
-                    # Use the data field if it exists
-                    collection_data = collection_info["data"]
-                else:
-                    # Otherwise use the top level
-                    collection_data = collection_info
+                # Print formatted information
+                click.echo(f"Collection ID: {collection_id}")
+                click.echo(f"Name: {collection_info.get('name', 'N/A')}")
+                click.echo(f"Description: {collection_info.get('description', 'N/A')}")
+                click.echo(f"Type: BYOC")
                 
-                click.echo("\nCollection Information:")
-                click.echo(f"  ID: {collection_data.get('id', 'N/A')}")
-                click.echo(f"  Name: {collection_data.get('name', 'N/A')}")
-                click.echo(f"  Created: {collection_data.get('created', 'N/A')}")
+                # Print spatial extent if available
+                if "extent" in collection_info:
+                    extent = collection_info["extent"]
+                    if "spatial" in extent and "bbox" in extent["spatial"]:
+                        bbox = extent["spatial"]["bbox"]
+                        click.echo(f"Spatial Extent (bbox): {bbox}")
+                    
+                    if "temporal" in extent and "interval" in extent["temporal"]:
+                        interval = extent["temporal"]["interval"]
+                        click.echo(f"Temporal Extent: {interval}")
                 
-                # Display bands information if available
-                if "additionalData" in collection_data and "bands" in collection_data["additionalData"]:
-                    bands = collection_data["additionalData"]["bands"]
+                # Print band information if available
+                if "summaries" in collection_info and "eo:bands" in collection_info["summaries"]:
+                    bands = collection_info["summaries"]["eo:bands"]
                     click.echo("\nBands:")
-                    for band_name, band_info in bands.items():
-                        click.echo(f"  - {band_name}:")
-                        click.echo(f"      Sample Format: {band_info.get('sampleFormat', 'N/A')}")
-                        click.echo(f"      Bit Depth: {band_info.get('bitDepth', 'N/A')}")
-                        click.echo(f"      No Data Value: {band_info.get('noData', 'N/A')}")
-                        click.echo(f"      Band Index: {band_info.get('bandIndex', 'N/A')}")
-                        click.echo(f"      Source: {band_info.get('source', 'N/A')}")
-                
-                # Display temporal extent if available
-                if "additionalData" in collection_data:
-                    additional_data = collection_data["additionalData"]
-                    
-                    # Check for temporal information
-                    if "fromSensingTime" in additional_data and "toSensingTime" in additional_data:
-                        click.echo("\nTemporal Extent:")
-                        click.echo(f"  Start: {additional_data.get('fromSensingTime', 'N/A')}")
-                        click.echo(f"  End: {additional_data.get('toSensingTime', 'N/A')}")
-                    
-                    # Display spatial extent if available
-                    if "extent" in additional_data:
-                        extent = additional_data["extent"]
-                        if "coordinates" in extent:
-                            coords = extent["coordinates"][0]
-                            min_lon = min(c[0] for c in coords)
-                            min_lat = min(c[1] for c in coords)
-                            max_lon = max(c[0] for c in coords)
-                            max_lat = max(c[1] for c in coords)
-                            
-                            click.echo("\nSpatial Extent (BBOX):")
-                            click.echo(f"  {min_lon},{min_lat},{max_lon},{max_lat}")
-                    
-                    # Display other metadata
-                    click.echo("\nAdditional Metadata:")
-                    for key, value in additional_data.items():
-                        if key not in ["bands", "extent", "fromSensingTime", "toSensingTime"]:
-                            click.echo(f"  {key}: {value}")
-        
+                    for band in bands:
+                        name = band.get("name", "N/A")
+                        description = band.get("description", "N/A")
+                        click.echo(f"  - {name}: {description}")
         except Exception as e:
             click.echo(f"Error getting BYOC information: {e}")
             if debug:
                 import traceback
                 click.echo(traceback.format_exc())
-    
     else:
-        # Use STAC API for all collections (default)
-        # For BYOC collections, prepend "byoc-" to the UUID
-        stac_collection_id = f"byoc-{collection_id}" if is_uuid else collection_id
+        # Use STAC API for all collections (including BYOC)
+        stac_id = collection_id
+        if is_uuid_flag:
+            stac_id = f"byoc-{collection_id}"
         
-        click.echo(f"Getting STAC information for collection: {stac_collection_id}")
-        
+        click.echo(f"Getting STAC information for collection: {stac_id}")
         try:
-            stac_info = api.get_stac_info(stac_collection_id)
+            collection_info = api.get_stac_info(stac_id)
             
             if raw:
-                # Display raw JSON
-                click.echo(json.dumps(stac_info, indent=2))
+                # Print raw JSON
+                click.echo(json.dumps(collection_info, indent=2))
             else:
-                # Display formatted information
-                click.echo("\nSTAC Collection Information:")
-                click.echo(f"  ID: {stac_info.get('id', 'N/A')}")
-                click.echo(f"  Title: {stac_info.get('title', 'N/A')}")
-                click.echo(f"  Description: {stac_info.get('description', 'N/A')}")
-                click.echo(f"  License: {stac_info.get('license', 'N/A')}")
-                click.echo(f"  Version: {stac_info.get('version', 'N/A')}")
-                click.echo(f"  STAC Version: {stac_info.get('stac_version', 'N/A')}")
+                # Print formatted information
+                click.echo(f"Collection ID: {stac_id}")
+                click.echo(f"Title: {collection_info.get('title', 'N/A')}")
+                click.echo(f"Description: {collection_info.get('description', 'N/A')}")
+                click.echo(f"Type: {'BYOC' if is_uuid_flag else 'Standard'}")
                 
-                # Display spatial extent
-                if "extent" in stac_info:
-                    extent = stac_info["extent"]
-                    if "spatial" in extent:
-                        spatial = extent["spatial"]
-                        if "bbox" in spatial and spatial["bbox"]:
-                            bbox = spatial["bbox"][0]
-                            click.echo("\nSpatial Extent (BBOX):")
-                            click.echo(f"  {bbox}")
+                # Print license information if available
+                if "license" in collection_info:
+                    click.echo(f"License: {collection_info['license']}")
+                
+                # Print spatial extent if available
+                if "extent" in collection_info:
+                    extent = collection_info["extent"]
+                    if "spatial" in extent and "bbox" in extent["spatial"]:
+                        bbox = extent["spatial"]["bbox"]
+                        click.echo(f"Spatial Extent (bbox): {bbox}")
                     
-                    if "temporal" in extent:
-                        temporal = extent["temporal"]
-                        if "interval" in temporal and temporal["interval"]:
-                            interval = temporal["interval"][0]
-                            click.echo("\nTemporal Extent:")
-                            click.echo(f"  Start: {interval[0] if interval[0] else 'N/A'}")
-                            click.echo(f"  End: {interval[1] if interval[1] else 'N/A'}")
+                    if "temporal" in extent and "interval" in extent["temporal"]:
+                        interval = extent["temporal"]["interval"]
+                        click.echo(f"Temporal Extent: {interval}")
                 
-                # Display providers
-                if "providers" in stac_info and stac_info["providers"]:
-                    click.echo("\nProviders:")
-                    for provider in stac_info["providers"]:
-                        click.echo(f"  - {provider.get('name', 'N/A')}: {provider.get('description', 'N/A')}")
-                        if "roles" in provider:
-                            click.echo(f"    Roles: {', '.join(provider['roles'])}")
-                        if "url" in provider:
-                            click.echo(f"    URL: {provider['url']}")
+                # Print band information if available
+                band_info = api.extract_band_info(collection_info)
+                if band_info:
+                    click.echo("\nBands:")
+                    for band_name, band_data in band_info.items():
+                        description = band_data.get("description", "N/A")
+                        click.echo(f"  - {band_name}: {description}")
                 
-                # Display summaries
-                if "summaries" in stac_info:
-                    summaries = stac_info["summaries"]
-                    click.echo("\nSummaries:")
-                    for key, value in summaries.items():
-                        if isinstance(value, list) and len(value) > 10:
-                            click.echo(f"  {key}: {value[:5]} ... (and {len(value)-5} more)")
-                        else:
-                            click.echo(f"  {key}: {value}")
+                # Print data type if available
+                data_type = api.get_collection_data_type(collection_info)
+                if data_type != "AUTO":
+                    click.echo(f"\nDefault Data Type: {data_type}")
                 
-                # Display assets
-                if "assets" in stac_info:
-                    assets = stac_info["assets"]
-                    click.echo("\nAssets:")
-                    for asset_name, asset_info in assets.items():
-                        click.echo(f"  - {asset_name}:")
-                        click.echo(f"      Title: {asset_info.get('title', 'N/A')}")
-                        click.echo(f"      Type: {asset_info.get('type', 'N/A')}")
-                        if "roles" in asset_info:
-                            click.echo(f"      Roles: {', '.join(asset_info['roles'])}")
-                
-                # Display item assets
-                if "item_assets" in stac_info:
-                    item_assets = stac_info["item_assets"]
-                    click.echo("\nItem Assets (Bands):")
-                    for asset_name, asset_info in item_assets.items():
-                        click.echo(f"  - {asset_name}:")
-                        click.echo(f"      Title: {asset_info.get('title', 'N/A')}")
-                        click.echo(f"      Type: {asset_info.get('type', 'N/A')}")
-                        if "roles" in asset_info:
-                            click.echo(f"      Roles: {', '.join(asset_info['roles'])}")
-                        
-                        # Display raster band information if available
-                        if "raster:bands" in asset_info:
-                            bands = asset_info["raster:bands"]
-                            for i, band in enumerate(bands):
-                                click.echo(f"      Band {i+1}:")
-                                if "data_type" in band:
-                                    click.echo(f"        Data Type: {band['data_type']}")
-                                if "nodata" in band:
-                                    click.echo(f"        No Data Value: {band['nodata']}")
-                                if "unit" in band:
-                                    click.echo(f"        Unit: {band['unit']}")
-                                if "scale" in band:
-                                    click.echo(f"        Scale: {band['scale']}")
-                                if "offset" in band:
-                                    click.echo(f"        Offset: {band['offset']}")
-        
+                # Print nodata value if available
+                nodata = api.get_collection_nodata_value(collection_info)
+                if nodata is not None:
+                    click.echo(f"NoData Value: {nodata}")
         except Exception as e:
-            click.echo(f"Error getting STAC information: {e}")
+            click.echo(f"Error getting collection information: {e}")
             if debug:
                 import traceback
                 click.echo(traceback.format_exc())
