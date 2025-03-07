@@ -56,6 +56,9 @@ class BYOCAPI:
             output_dir = "./downloads"
         os.makedirs(output_dir, exist_ok=True)
         
+        # Inform user about download location
+        logger.info(f"Files will be downloaded to: {os.path.abspath(output_dir)}")
+        
         # Default filename template
         if filename_template is None:
             filename_template = "BYOC_{date}.tiff"
@@ -141,14 +144,23 @@ class BYOCAPI:
             logger.warning("No available dates found for the specified parameters")
             return []
         
-        logger.debug(f"Found {len(available_dates)} dates with images")
+        logger.info(f"Found {len(available_dates)} dates with images")
         if specified_bands:
             logger.debug(f"Using bands: {specified_bands}")
         
         downloaded_files = []
         
+        # Import tqdm for progress bar if available
+        try:
+            from tqdm import tqdm
+            date_iterator = tqdm(available_dates, desc="Downloading BYOC images", unit="image")
+        except ImportError:
+            # Fall back to regular iteration if tqdm is not available
+            date_iterator = available_dates
+            logger.debug(f"Starting download of {len(available_dates)} images...")
+        
         # Download each date
-        for date in available_dates:
+        for date in date_iterator:
             date_str = date.strftime("%Y-%m-%d")
             
             # Create filename from template
@@ -160,6 +172,10 @@ class BYOCAPI:
             try:
                 # Use the output_path directly with process_image
                 output_path = os.path.join(output_dir, filename)
+                
+                # Log the current file being processed
+                if not isinstance(date_iterator, tqdm):
+                    logger.debug(f"Downloading image for {date_str} to {output_path}")
                 
                 # Download the image using the sentinelhub-py library
                 downloaded_path = self.process_api.process_image(
@@ -180,5 +196,11 @@ class BYOCAPI:
                 logger.debug(f"Downloaded image for {date_str}: {downloaded_path}")
             except Exception as e:
                 logger.error(f"Failed to download image for {date_str}: {e}")
+        
+        # Summary after downloads complete
+        if downloaded_files:
+            logger.info(f"Successfully downloaded {len(downloaded_files)} of {len(available_dates)} images to {os.path.abspath(output_dir)}")
+        else:
+            logger.warning("No images were successfully downloaded")
         
         return downloaded_files 

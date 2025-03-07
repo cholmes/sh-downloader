@@ -18,7 +18,7 @@ from sentinelhub_downloader.utils import get_date_range, parse_bbox
 # Set up logging
 logger = logging.getLogger("sentinelhub_downloader")
 handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
@@ -408,9 +408,9 @@ def byoc(
     bbox_tuple = None
     if bbox:
         bbox_tuple = parse_bbox(bbox)
-        click.echo(f"Bounding box: {bbox_tuple}")
+        logger.debug(f"Bounding box: {bbox_tuple}")
     else:
-        click.echo("No bounding box provided - will use each image's own bbox")
+        logger.debug("No bounding box provided - will use each image's own bbox")
     
     # If a specific image ID is provided, download just that image
     if image_id:
@@ -441,7 +441,6 @@ def byoc(
     
     # Parse size
     size_tuple = tuple(map(int, size.split(",")))
-    click.echo(f"Output size: {size_tuple}")
 
     # Determine time difference
     effective_time_difference = None
@@ -511,7 +510,7 @@ def byoc(
             click.echo(f"Evalscript:\n{evalscript}")
     
     # Download images
-    click.echo(f"Downloading {len(available_dates)} images...")
+
     
     # If we're using each image's own bbox, we need to modify the download approach
     if bbox_tuple is None:
