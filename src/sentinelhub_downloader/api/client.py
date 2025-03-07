@@ -52,9 +52,13 @@ class SentinelHubClient:
         self.sh_config.sh_client_id = self.config.get("client_id")
         self.sh_config.sh_client_secret = self.config.get("client_secret")
         self.sh_config.sh_base_url = "https://services.sentinel-hub.com"
+        self.sh_config.sh_auth_base_url = "https://services.sentinel-hub.com"
         
         # Initialize token
         self._get_token()
+
+    def get_sh_config(self):
+        return self.sh_config
         
     def _get_token(self):
         """Get an OAuth token for the Sentinel Hub API."""

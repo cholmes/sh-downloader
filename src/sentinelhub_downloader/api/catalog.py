@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, Tuple, List, Union
 
 from sentinelhub_downloader.api.client import SentinelHubClient
 from sentinelhub_downloader.utils import format_time_interval
+from sentinelhub import SentinelHubCatalog, BBox, CRS
 
 logger = logging.getLogger("sentinelhub_downloader")
 
@@ -29,19 +30,8 @@ class CatalogAPI:
         byoc_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Search the Sentinel Hub Catalog for available images.
+        """Search the Sentinel Hub Catalog for available images."""
         
-        Args:
-            collection: Collection name (e.g., "sentinel-2-l2a")
-            time_interval: Tuple of (start_date, end_date)
-            bbox: Bounding box as (min_lon, min_lat, max_lon, max_lat)
-            max_cloud_cover: Maximum cloud cover percentage (0-100)
-            byoc_id: BYOC collection ID (required if collection is "byoc")
-            limit: Maximum number of results to return
-            
-        Returns:
-            List of image metadata
-        """
         # Validate inputs
         if collection.lower() == "byoc" and not byoc_id:
             raise ValueError("BYOC collection ID is required when collection is 'byoc'")
@@ -54,42 +44,41 @@ class CatalogAPI:
         if catalog_id == "byoc":
             catalog_id = f"byoc-{byoc_id}"
         
-        # Construct search request
-        payload = {
-            "collections": [catalog_id],
-            "datetime": f"{time_from}/{time_to}",
-            "limit": limit,
-        }
-        
         # Add bounding box if provided, otherwise use global bbox
         if bbox:
-            payload["bbox"] = list(bbox)
+            # Make sure bbox is a tuple of 4 floats
+            if len(bbox) != 4:
+                raise ValueError(f"Invalid bbox format: {bbox}. Expected (min_lon, min_lat, max_lon, max_lat)")
+            search_bbox = BBox(list(bbox), crs=CRS.WGS84)
         else:
             # Global bounding box: [-180, -90, 180, 90]
-            payload["bbox"] = [-180, -90, 180, 90]
-        
-        # Add cloud cover filter if provided
-        if max_cloud_cover is not None and max_cloud_cover >= 0:
-            payload["filter"] = {
-                "op": "lt",
-                "args": [
-                    {"property": "eo:cloud_cover"},
-                    max_cloud_cover
-                ]
-            }
-        
-        logger.debug(f"Search payload: {payload}")
-        
-        # Make API request
-        response = self.client.post(
-            f"{self.client.catalog_url}/search",
-            json=payload
+            search_bbox = BBox((-180, -90, 180, 90), crs=CRS.WGS84)
+  
+
+        catalog = SentinelHubCatalog(config=self.client.get_sh_config())        
+
+        if max_cloud_cover is not None:
+            if catalog_id == "sentinel-2-l2a" or catalog_id == "sentinel-2-l1c":
+                filter = "eo:cloud_cover < " + str(max_cloud_cover)
+            else:
+                logger.warning(f"Cloud cover filtering is not supported for {catalog_id} collection")
+                filter = None
+        else:
+            filter = None
+            
+        search_iterator = catalog.search(
+            catalog_id,
+            bbox=search_bbox,
+            time=time_interval,
+            filter=filter,
+            fields={ "exclude": []},
         )
-        
-        # Extract results
-        results = response.json().get("features", [])
-        logger.debug(f"Found {len(results)} images")
-        
+
+
+        results = list(search_iterator)
+    
+        logger.debug("first result: " + str(results[0]))
+
         # Sort results by datetime in descending order
         results.sort(
             key=lambda x: x.get("properties", {}).get("datetime", ""),
@@ -122,13 +111,15 @@ class CatalogAPI:
         )
         all_results.extend(search_results)
         
+        print(f"Found {len(search_results)} images in first page")
         # If we got a full page, we might need more pages
-        while len(search_results) == max_per_page and len(all_results) < 1000:
+        while len(search_results) == max_per_page and len(all_results) < 2000:
             # Find the datetime of the last item to use as a filter
             if not search_results:
                 break
             
             last_datetime = search_results[-1].get("properties", {}).get("datetime")
+            #print(f"Last datetime: {last_datetime}")
             if not last_datetime:
                 break
             
@@ -146,11 +137,12 @@ class CatalogAPI:
             # Add a tiny offset to exclude the last result from previous page
             new_start = last_date + timedelta(milliseconds=1)
             _, end_date = time_interval
-            
+            print(f"New start: {new_start}, End date: {end_date}")
             # If new start is after end date, we're done
             if new_start > end_date:
                 break
             
+            # print(f"Fetching next page from {new_start} to {end_date}")
             # Fetch the next page
             search_results = self.search_images(
                 collection=collection,

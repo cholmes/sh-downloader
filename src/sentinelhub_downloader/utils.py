@@ -24,50 +24,45 @@ def parse_date(date_str: str) -> datetime.datetime:
 
 
 def parse_bbox(ctx=None, param=None, value=None):
-    """Parse a bounding box string into a tuple.
+    """Parse a bounding box string into a tuple of floats.
     
-    Can be used as a Click callback or standalone function.
+    Can be used as a Click callback or as a standalone function.
     
     Args:
-        ctx: Click context (optional, for Click callback)
-        param: Click parameter (optional, for Click callback)
-        value: String in format "minx,miny,maxx,maxy" or None
+        ctx: Click context (optional)
+        param: Click parameter (optional)
+        value: Bounding box string or value to parse
         
     Returns:
-        Tuple of (minx, miny, maxx, maxy) or None if value is None
+        Tuple of (min_lon, min_lat, max_lon, max_lat) or None if value is None
     """
+    # If called directly with a single argument, assume it's the value
+    if ctx is not None and param is None and value is None:
+        value = ctx
+        ctx = None
+    
     if value is None:
         return None
-        
+    
     try:
-        # Handle the case where value is already a tuple
+        # If value is already a tuple, just validate it
         if isinstance(value, tuple) and len(value) == 4:
             return value
             
-        # Parse string format
-        parts = value.split(',')
-        if len(parts) != 4:
-            if ctx:  # If called as a Click callback
-                raise click.BadParameter("Bounding box must be in format 'minx,miny,maxx,maxy'")
-            else:
-                raise ValueError("Bounding box must be in format 'minx,miny,maxx,maxy'")
-                
-        bbox = tuple(float(p.strip()) for p in parts)
+        # Split by comma and convert to float
+        parts = [float(x.strip()) for x in value.split(',')]
         
-        # Validate coordinates
-        minx, miny, maxx, maxy = bbox
-        if minx >= maxx or miny >= maxy:
-            if ctx:
-                raise click.BadParameter("Invalid bounding box: min values must be less than max values")
-            else:
-                raise ValueError("Invalid bounding box: min values must be less than max values")
-                
-        return bbox
-    except ValueError as e:
-        if ctx:
-            raise click.BadParameter(f"Invalid bounding box format: {str(e)}")
+        # Ensure we have exactly 4 values
+        if len(parts) != 4:
+            raise ValueError("Bounding box must have exactly 4 values")
+        
+        # Return as tuple (min_lon, min_lat, max_lon, max_lat)
+        return tuple(parts)
+    except Exception as e:
+        if ctx:  # If called as a Click callback
+            raise click.BadParameter(f"Invalid bounding box format: {e}")
         else:
-            raise ValueError(f"Invalid bounding box format: {str(e)}")
+            raise ValueError(f"Invalid bounding box format: {e}")
 
 
 def get_date_range(

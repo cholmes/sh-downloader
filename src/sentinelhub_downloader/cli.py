@@ -174,6 +174,7 @@ def configure(ctx):
     "--bbox",
     "-b",
     help="Bounding box as min_lon,min_lat,max_lon,max_lat. Default is global.",
+    callback=parse_bbox,
 )
 @click.option(
     "--max-cloud-cover",
@@ -228,12 +229,7 @@ def search(
     click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
     
     # Parse bounding box if provided
-    bbox_tuple = None
-    if bbox:
-        bbox_tuple = parse_bbox(bbox)
-        click.echo(f"Bounding box: {bbox_tuple}")
-    else:
-        click.echo("Bounding box: Global")
+    bbox_tuple = bbox  # bbox is already parsed by the callback
     
     # Search for images
     click.echo(f"Searching for {collection} images...")
@@ -243,6 +239,7 @@ def search(
         bbox=bbox_tuple,
         max_cloud_cover=max_cloud_cover,
         byoc_id=byoc_id,
+        limit=limit,
     )
     
     if not search_results:
