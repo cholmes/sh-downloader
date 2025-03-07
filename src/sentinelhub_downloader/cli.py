@@ -139,26 +139,9 @@ def configure(ctx):
 
 
 @cli.command()
-@click.option(
-    "--collection",
-    "-c",
-    type=click.Choice(
-        [
-            "sentinel-1-grd",
-            "sentinel-2-l1c",
-            "sentinel-2-l2a",
-            "sentinel-3-olci",
-            "sentinel-5p-l2",
-            "byoc",
-        ],
-        case_sensitive=False,
-    ),
-    required=True,
-    help="Sentinel data collection to search",
-)
-@click.option(
-    "--byoc-id",
-    help="BYOC collection ID (required if collection is 'byoc')",
+@click.argument(
+    "collection_id",
+    required=True
 )
 @click.option(
     "--start",
@@ -192,15 +175,17 @@ def configure(ctx):
 @click.pass_context
 def search(
     ctx,
-    collection: str,
-    byoc_id: Optional[str],
+    collection_id: str,
     start: Optional[str],
     end: Optional[str],
     bbox: Optional[str],
     max_cloud_cover: Optional[float],
     limit: int,
 ):
-    """Search for available satellite imagery without downloading."""
+    """Search for available satellite imagery without downloading.
+    
+    COLLECTION_ID can be a standard collection ID (e.g., sentinel-2-l2a) or a BYOC UUID.
+    """
     debug = ctx.obj.get("DEBUG", False)
     config = Config()
     
@@ -208,11 +193,6 @@ def search(
     if not config.is_configured():
         click.echo("Sentinel Hub Downloader is not configured. Running configuration wizard...")
         config.configure_wizard()
-    
-    # Check if BYOC ID is provided for BYOC collection
-    if collection.lower() == "byoc" and not byoc_id:
-        click.echo("Error: BYOC collection ID (--byoc-id) is required when using BYOC collection")
-        return
     
     # Set up API client with debug flag
     api = SentinelHubAPI(config, debug=debug)
@@ -224,6 +204,30 @@ def search(
     else:
         logger.setLevel(logging.INFO)
     
+    # Check if the collection ID is a UUID (BYOC collection)
+    is_uuid = False
+    byoc_id = None
+    if '-' in collection_id and len(collection_id) >= 32:
+        try:
+            # Try to parse the first 36 characters as a UUID
+            import uuid
+            uuid_part = collection_id[:36] if len(collection_id) > 36 else collection_id
+            uuid.UUID(uuid_part)
+            is_uuid = True
+            byoc_id = uuid_part
+            # If we successfully parsed a UUID but the string is longer, trim it
+            if len(collection_id) > 36:
+                logger.warning(f"Trimming collection ID to valid UUID format: {uuid_part}")
+                collection_id = uuid_part
+        except (ValueError, AttributeError):
+            pass
+    
+    if debug:
+        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid}")
+    
+    # Determine the collection type
+    collection = "byoc" if is_uuid else collection_id
+    
     # Parse date range
     start_date, end_date = get_date_range(start, end)
     click.echo(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -232,7 +236,11 @@ def search(
     bbox_tuple = bbox  # bbox is already parsed by the callback
     
     # Search for images
-    click.echo(f"Searching for {collection} images...")
+    if is_uuid:
+        click.echo(f"Searching for BYOC collection {byoc_id}...")
+    else:
+        click.echo(f"Searching for {collection} images...")
+    
     search_results = api.search_images(
         collection=collection,
         time_interval=(start_date, end_date),

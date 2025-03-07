@@ -35,10 +35,7 @@ class CatalogAPI:
         # Validate inputs
         if collection.lower() == "byoc" and not byoc_id:
             raise ValueError("BYOC collection ID is required when collection is 'byoc'")
-        
-        # Format time interval
-        time_from, time_to = format_time_interval(time_interval)
-        
+               
         # Build catalog ID
         catalog_id = collection.lower()
         if catalog_id == "byoc":
@@ -77,7 +74,11 @@ class CatalogAPI:
 
         results = list(search_iterator)
     
-        logger.debug("first result: " + str(results[0]))
+        # if there are results, log the first result
+        if results:
+            logger.debug("first result: " + str(results[0]))
+        else:
+            logger.debug("no results found")
 
         # Sort results by datetime in descending order
         results.sort(
