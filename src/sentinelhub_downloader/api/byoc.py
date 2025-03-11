@@ -59,9 +59,9 @@ class BYOCAPI:
         # Inform user about download location
         logger.info(f"Files will be downloaded to: {os.path.abspath(output_dir)}")
         
-        # Default filename template
-        if filename_template is None:
-            filename_template = "BYOC_{date}.tiff"
+        # Set default filename template if not provided
+        if not filename_template:
+            filename_template = "BYOC_{byoc_id}_{date}_{id}.tiff"
         
         # If no evalscript is provided and no bands are specified, try to auto-discover bands
         if not evalscript and not specified_bands and auto_discover_bands:
@@ -131,56 +131,58 @@ class BYOCAPI:
             logger.debug("Using default evalscript")
             evalscript = self.process_api._get_default_evalscript()
         
-        # Get available dates
-        available_dates = self.catalog_api.get_available_dates(
+        # Get available dates and metadata
+        search_results = self.catalog_api.get_available_dates(
             collection="byoc",
-            byoc_id=byoc_id,
             time_interval=time_interval,
             bbox=bbox,
+            byoc_id=byoc_id,
             time_difference_days=time_difference_days
         )
         
-        if not available_dates:
+        if not search_results:
             logger.warning("No available dates found for the specified parameters")
             return []
         
-        logger.info(f"Found {len(available_dates)} dates with images")
+        logger.info(f"Found {len(search_results)} dates with images")
         if specified_bands:
             logger.debug(f"Using bands: {specified_bands}")
         
         downloaded_files = []
         
-        # Import tqdm for progress bar if available
+        # Use tqdm for progress tracking
         try:
             from tqdm import tqdm
-            date_iterator = tqdm(available_dates, desc="Downloading BYOC images", unit="image")
+            result_iterator = tqdm(search_results, desc="Downloading BYOC images", unit="image")
         except ImportError:
-            # Fall back to regular iteration if tqdm is not available
-            date_iterator = available_dates
-            logger.debug(f"Starting download of {len(available_dates)} images...")
+            result_iterator = search_results
+            logger.debug(f"Starting download of {len(search_results)} images...")
         
-        # Download each date
-        for date in date_iterator:
-            date_str = date.strftime("%Y-%m-%d")
+        # Download each image
+        for result in result_iterator:
+            date_str = result['datetime'].strftime("%Y-%m-%d")
+            feature_id = result['id']
             
             # Create filename from template
             filename = filename_template.format(
-                collection=f"BYOC_{byoc_id[:8]}",
-                date=date_str
+                byoc_id=byoc_id[:8],  # Use first 8 chars of BYOC ID
+                date=date_str,
+                id=feature_id
             )
             
+
             try:
-                # Use the output_path directly with process_image
                 output_path = os.path.join(output_dir, filename)
+                print(f"Output path: {output_path}")
                 
-                # Log the current file being processed
-                if not isinstance(date_iterator, tqdm):
+                if not isinstance(result_iterator, tqdm):
                     logger.debug(f"Downloading image for {date_str} to {output_path}")
                 
-                # Download the image using the sentinelhub-py library
+                # Download using the geometry from the search result
                 downloaded_path = self.process_api.process_image(
                     collection="byoc",
-                    bbox=bbox,
+                    bbox=result.get('bbox'),  # Keep bbox for fallback
+                    geometry=result.get('geometry'),  # Add geometry from search result
                     output_path=output_path,
                     date=date_str,
                     size=size,
@@ -199,7 +201,7 @@ class BYOCAPI:
         
         # Summary after downloads complete
         if downloaded_files:
-            logger.info(f"Successfully downloaded {len(downloaded_files)} of {len(available_dates)} images to {os.path.abspath(output_dir)}")
+            logger.info(f"Successfully downloaded {len(downloaded_files)} of {len(search_results)} images to {os.path.abspath(output_dir)}")
         else:
             logger.warning("No images were successfully downloaded")
         

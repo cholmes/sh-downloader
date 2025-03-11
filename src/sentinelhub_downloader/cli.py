@@ -231,10 +231,8 @@ def search(
 )
 @click.option(
     "--bbox",
-    "-b",
-    required=False,
-    help="Bounding box in format 'minx,miny,maxx,maxy' (WGS84). Optional - if not provided, will use each image's own bbox.",
     callback=parse_bbox,
+    help="Bounding box in format: <min_lon> <min_lat> <max_lon> <max_lat>. If not provided, will download globally.",
 )
 @click.option(
     "--output-dir",
@@ -686,6 +684,103 @@ def info(
             if debug:
                 import traceback
                 click.echo(traceback.format_exc())
+
+
+@cli.command()
+@click.argument(
+    "collection_id",
+    required=True
+)
+@click.argument(
+    "feature_id",
+    required=True
+)
+@click.option(
+    "--raw/--formatted",
+    default=False,
+    help="Display raw JSON or formatted output (default: formatted)",
+)
+@click.pass_context
+def feature_info(
+    ctx,
+    collection_id: str,
+    feature_id: str,
+    raw: bool,
+):
+    """Get information about a specific feature in a collection.
+    
+    COLLECTION_ID can be a standard collection ID (e.g., sentinel-2-l2a) or a BYOC UUID.
+    FEATURE_ID is the ID of the specific feature to retrieve information about.
+    """
+    api, debug = setup_api_from_context(ctx)
+    
+    # Check if the collection ID is a UUID (BYOC collection)
+    is_uuid_flag, valid_uuid = is_uuid(collection_id)
+    
+    if debug:
+        logger.debug(f"Collection ID '{collection_id}' identified as UUID: {is_uuid_flag}")
+    
+    # Format the collection ID for STAC API
+    stac_id = f"byoc-{valid_uuid}" if is_uuid_flag else collection_id
+    
+    try:
+        # Get the feature information
+        feature_info = api.get_stac_feature(stac_id, feature_id)
+        
+        if raw:
+            # Print raw JSON
+            click.echo(json.dumps(feature_info, indent=2))
+        else:
+            # Print formatted information
+            click.echo(f"Feature ID: {feature_id}")
+            click.echo(f"Collection: {stac_id}")
+            
+            # Print datetime if available
+            datetime_str = feature_info.get("properties", {}).get("datetime")
+            if datetime_str:
+                click.echo(f"DateTime: {datetime_str}")
+            
+            # Print bbox if available
+            bbox = feature_info.get("bbox")
+            if bbox:
+                click.echo(f"Bounding Box: {bbox}")
+            
+            # Print cloud cover if available
+            cloud_cover = feature_info.get("properties", {}).get("eo:cloud_cover")
+            if cloud_cover is not None:
+                click.echo(f"Cloud Cover: {cloud_cover}%")
+            
+            # Print other interesting properties
+            props = feature_info.get("properties", {})
+            interesting_props = [
+                "platform", "instrument", "constellation",
+                "gsd", "proj:epsg", "proj:shape",
+                "sentinel:data_coverage"
+            ]
+            
+            click.echo("\nProperties:")
+            for prop in interesting_props:
+                if prop in props:
+                    click.echo(f"  {prop}: {props[prop]}")
+            
+            # Print asset information
+            assets = feature_info.get("assets", {})
+            if assets:
+                click.echo("\nAssets:")
+                for name, asset in assets.items():
+                    click.echo(f"  {name}:")
+                    if "title" in asset:
+                        click.echo(f"    Title: {asset['title']}")
+                    if "type" in asset:
+                        click.echo(f"    Type: {asset['type']}")
+                    if "roles" in asset:
+                        click.echo(f"    Roles: {', '.join(asset['roles'])}")
+    
+    except Exception as e:
+        click.echo(f"Error getting feature information: {e}")
+        if debug:
+            import traceback
+            click.echo(traceback.format_exc())
 
 
 if __name__ == "__main__":

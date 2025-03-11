@@ -11,7 +11,8 @@ from sentinelhub import (
     BBox, 
     CRS, 
     MimeType, 
-    DataCollection
+    DataCollection, 
+    Geometry
 )
 
 from sentinelhub_downloader.api.client import SentinelHubClient
@@ -117,10 +118,9 @@ class ProcessAPI:
     def process_image(
         self,
         collection: str,
+        bbox: Tuple[float, float, float, float],
         output_path: str,
-        bbox: Optional[Tuple[float, float, float, float]] = None,
-        image_id: Optional[str] = None,
-        date: Optional[str] = None,
+        date: str,
         size: Tuple[int, int] = (512, 512),
         evalscript: Optional[str] = None,
         byoc_id: Optional[str] = None,
@@ -128,8 +128,9 @@ class ProcessAPI:
         data_type: str = "AUTO",
         nodata_value: Optional[float] = None,
         scale_metadata: Optional[float] = None,
+        geometry: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Process and download an image using the sentinelhub-py library."""
+        """Process and download an image."""
         # Silence GDAL warnings about exceptions
         try:
             from osgeo import gdal
@@ -141,6 +142,7 @@ class ProcessAPI:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
         # Determine the data collection
+        print(f"Collection: {collection}")
         if collection.lower() == "byoc" and byoc_id:
             data_collection = DataCollection.define_byoc(byoc_id)
         else:
@@ -152,21 +154,20 @@ class ProcessAPI:
                     data_collection = DataCollection.define_byoc(byoc_id)
                 else:
                     raise ValueError(f"Unsupported collection: {collection}")
+          
+
+        sh_geometry = None
+        if geometry:
+            try:
+                sh_geometry = Geometry(geometry, crs=CRS.WGS84)
+            except Exception as e:
+                logger.warning(f"Failed to convert geometry to Sentinel Hub Geometry: {e}")
+                # Fall back to bbox if geometry conversion fails
+                if bbox is None:
+                    bbox = tuple(geometry["bbox"])
         
-        # If bbox is not provided, try to get it from the image metadata
-        if bbox is None:
-            if image_id:
-                logger.debug(f"No bbox provided, attempting to retrieve from image metadata for {image_id}")
-                bbox = self._get_bbox_from_image_id(collection, image_id, byoc_id)
-            elif date:
-                logger.warning("No bbox provided and cannot automatically determine bbox from date alone")
-                raise ValueError("bbox must be provided when using date parameter without image_id")
-            else:
-                raise ValueError("Either bbox or image_id must be provided")
-        
-        # Create a BBox object
         bbox_obj = BBox(bbox, crs=CRS.WGS84)
-        
+
         # Create evalscript if not provided
         if not evalscript:
             bands_to_use = specified_bands or ["B04", "B03", "B02"]
@@ -175,35 +176,24 @@ class ProcessAPI:
         logger.debug(f"Using evalscript: {evalscript}")
         
         # Prepare input data based on whether we have an image_id or date
-        if image_id:
+        if date:
             input_data = [
                 SentinelHubRequest.input_data(
                     data_collection=data_collection,
-                    identifier=image_id,
-                )
-            ]
-        elif date:
-            # Convert date to string if it's a datetime object
-            if isinstance(date, datetime):
-                date_str = date.strftime("%Y-%m-%d")
-            else:
-                date_str = date
-            
-            input_data = [
-                SentinelHubRequest.input_data(
-                    data_collection=data_collection,
-                    time_interval=(date_str, date_str)
+                    time_interval=(date, date),
+                    mosaicking_order='mostRecent'
                 )
             ]
         else:
-            raise ValueError("Either image_id or date must be provided")
+            raise ValueError("Either date must be provided")
         
         # Create the request
         request = SentinelHubRequest(
             evalscript=evalscript,
             input_data=input_data,
             responses=[SentinelHubRequest.output_response("default", MimeType.TIFF)],
-            bbox=bbox_obj,
+            bbox=bbox_obj if not sh_geometry else None,
+            geometry=sh_geometry,
             size=size,
             config=self.sh_config,
         )

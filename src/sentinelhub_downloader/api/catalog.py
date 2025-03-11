@@ -80,13 +80,22 @@ class CatalogAPI:
         else:
             logger.debug("no results found")
 
-        # Sort results by datetime in descending order
-        results.sort(
-            key=lambda x: x.get("properties", {}).get("datetime", ""),
-            reverse=True
-        )
+        # Extract relevant metadata from each result
+        processed_results = []
+        for result in results:
+            try:
+                processed_result = {
+                    'datetime': datetime.fromisoformat(result['properties']['datetime'].replace('Z', '+00:00')),
+                    'geometry': result.get('geometry'),
+                    'id': result.get('id'),
+                    'bbox': result.get('bbox'),
+                    'properties': result.get('properties', {})
+                }
+                processed_results.append(processed_result)
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Failed to process result: {e}")
         
-        return results
+        return processed_results
 
     def get_available_dates(
         self,
@@ -95,8 +104,8 @@ class CatalogAPI:
         bbox: Optional[Tuple[float, float, float, float]] = None,
         byoc_id: Optional[str] = None,
         time_difference_days: Optional[int] = None
-    ) -> List[datetime]:
-        """Get available dates for a collection in a time interval.
+    ) -> List[Dict[str, Any]]:
+        """Get available dates and metadata for a collection in a time interval.
         
         Args:
             collection: Collection name
@@ -106,7 +115,7 @@ class CatalogAPI:
             time_difference_days: If specified, filter dates to have at least this many days between them
             
         Returns:
-            List of available dates as datetime objects
+            List of dictionaries containing datetime, geometry, and id for each result
         """
         logger.debug(f"Getting available dates for {collection} from {time_interval[0]} to {time_interval[1]}")
         
@@ -116,40 +125,43 @@ class CatalogAPI:
             time_interval=time_interval,
             bbox=bbox,
             byoc_id=byoc_id,
-            limit=1000  # Use a high limit to get all available dates
+            limit=1000
         )
         
         if not search_results:
             logger.debug("No images found for the specified parameters")
             return []
         
-        # Extract dates from search results
-        dates = []
-        for result in search_results:
-            date_str = result.get("properties", {}).get("datetime", "")
-            if date_str:
-                try:
-                    # Parse the full ISO datetime string
-                    date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    dates.append(date)
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Failed to parse date '{date_str}': {e}")
-        
-        # Sort dates
-        dates.sort()
+        # Sort results by date
+        search_results.sort(key=lambda x: x['datetime'])
         
         # Apply time difference filter if specified
         if time_difference_days is not None and time_difference_days > 0:
-            filtered_dates = []
+            filtered_results = []
             last_added = None
             
-            for date in dates:
-                if last_added is None or (date - last_added).days >= time_difference_days:
-                    filtered_dates.append(date)
-                    last_added = date
+            for result in search_results:
+                if last_added is None or (result['datetime'] - last_added).days >= time_difference_days:
+                    filtered_results.append(result)
+                    last_added = result['datetime']
             
-            logger.debug(f"Filtered from {len(dates)} to {len(filtered_dates)} dates using time difference of {time_difference_days} days")
-            dates = filtered_dates
+            logger.debug(f"Filtered from {len(search_results)} to {len(filtered_results)} results")
+            search_results = filtered_results
         
-        logger.debug(f"Found {len(dates)} available dates")
-        return dates
+        logger.debug(f"Found {len(search_results)} available dates")
+        return search_results
+
+    def get_stac_feature(self, collection_id: str, feature_id: str) -> Dict[str, Any]:
+        """Get STAC feature information.
+        
+        Args:
+            collection_id: Collection ID (e.g., sentinel-2-l2a or byoc-uuid)
+            feature_id: Feature ID to retrieve
+            
+        Returns:
+            Dictionary containing the feature information
+        """
+        response = self.client.get(
+            f"{self.client.catalog_url}/collections/{collection_id}/items/{feature_id}"
+        )
+        return response.json()
