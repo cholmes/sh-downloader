@@ -104,4 +104,47 @@ class SentinelHubAPI:
             nodata_value=nodata_value,
             scale_metadata=scale_metadata,
             data_type=data_type
-        ) 
+        )
+
+    def create_dynamic_evalscript(self, bands: List[str], data_type: str = "AUTO") -> str:
+        """Create a dynamic evalscript for the specified bands.
+        
+        Delegates to ProcessAPI.create_dynamic_evalscript.
+        """
+        return self.process.create_dynamic_evalscript(bands, data_type)
+
+    def extract_band_info(self, stac_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract band information from STAC collection info.
+        
+        Delegates to MetadataAPI.extract_band_info.
+        """
+        return self.metadata.extract_band_info(stac_info)
+
+    def get_default_evalscript(self) -> str:
+        """Get the default evalscript.
+        
+        Delegates to ProcessAPI._get_default_evalscript.
+        """
+        return self.process._get_default_evalscript()
+
+    def get_collection_data_type(self, collection_id: str) -> str:
+        """Get the data type for a collection.
+        
+        Args:
+            collection_id: Collection ID (e.g., sentinel-2-l2a or byoc-uuid)
+            
+        Returns:
+            Data type string (e.g., 'uint16', 'float32')
+        """
+        return self.metadata.get_collection_data_type(collection_id)
+
+    def get_collection_nodata_value(self, collection_id: str) -> Optional[float]:
+        """Get the nodata value for a collection.
+        
+        Args:
+            collection_id: Collection ID (e.g., sentinel-2-l2a or byoc-uuid)
+            
+        Returns:
+            Nodata value if available, None otherwise
+        """
+        return self.metadata.get_collection_nodata_value(collection_id) 

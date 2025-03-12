@@ -148,51 +148,36 @@ class MetadataAPI:
         
         return band_info
     
-    def get_collection_data_type(self, collection_info: Dict[str, Any]) -> str:
-        """Extract the data type from collection metadata.
+    def get_collection_data_type(self, collection_info: Union[str, Dict[str, Any]]) -> str:
+        """Get the data type for a collection.
         
         Args:
-            collection_info: Collection metadata from STAC or BYOC API
+            collection_info: Either a collection ID string or the collection info dictionary
             
         Returns:
-            Data type if available, "AUTO" otherwise
+            Data type string (e.g., 'uint16', 'float32')
         """
-        # Try STAC format with item_assets
-        if "item_assets" in collection_info:
-            for asset_name, asset_info in collection_info["item_assets"].items():
-                if "raster:bands" in asset_info and asset_info["raster:bands"]:
-                    band = asset_info["raster:bands"][0]
-                    if "data_type" in band:
-                        return band["data_type"].upper()
-        
-        # Try BYOC STAC format with summaries
-        if "summaries" in collection_info and "raster:bands" in collection_info["summaries"]:
-            raster_bands = collection_info["summaries"]["raster:bands"]
-            if raster_bands and len(raster_bands) > 0:
-                # For simplicity, use the first band's data type
-                if "data_type" in raster_bands[0]:
-                    data_type = raster_bands[0]["data_type"].upper()
-                    logger.debug(f"Found data type in STAC summaries: {data_type}")
-                    return data_type
-        
-        # Try BYOC format
-        if "data" in collection_info and "additionalData" in collection_info["data"]:
-            additional_data = collection_info["data"]["additionalData"]
-            if "bands" in additional_data:
-                bands = additional_data["bands"]
-                for band_name, band_data in bands.items():
-                    if "sampleFormat" in band_data:
-                        sample_format = band_data["sampleFormat"]
-                        # Map sample format to data type
-                        if sample_format == "UINT8":
-                            return "UINT8"
-                        elif sample_format == "UINT16":
-                            return "UINT16"
-                        elif sample_format in ["FLOAT32", "FLOAT64"]:
-                            return "FLOAT32"
-        
-        logger.debug("No data type found in collection metadata, using AUTO")
-        return "AUTO"
+        try:
+            # If we got a string (collection ID), get the info
+            if isinstance(collection_info, str):
+                stac_info = self.get_stac_info(collection_info)
+            else:
+                stac_info = collection_info
+            
+            # Try to get data type from STAC info
+            if "summaries" in stac_info:
+                if "raster:bands" in stac_info["summaries"]:
+                    bands = stac_info["summaries"]["raster:bands"]
+                    if bands and "data_type" in bands[0]:
+                        return bands[0]["data_type"]
+            
+            # Default to uint16 if not found
+            return "uint16"
+            
+        except Exception as e:
+            logger.warning(f"Failed to get data type for collection {collection_info}: {e}")
+            # Default to uint16 if there's an error
+            return "uint16"
     
     def get_collection_band_names(self, collection_info: Dict[str, Any]) -> List[str]:
         """Extract band names from collection metadata.
@@ -206,42 +191,31 @@ class MetadataAPI:
         band_info = self.extract_band_info(collection_info)
         return list(band_info.keys())
     
-    def get_collection_nodata_value(self, collection_info: Dict[str, Any]) -> Optional[float]:
-        """Extract the nodata value from collection metadata.
+    def get_collection_nodata_value(self, collection_info: Union[str, Dict[str, Any]]) -> Optional[float]:
+        """Get the nodata value for a collection.
         
         Args:
-            collection_info: Collection metadata from STAC or BYOC API
+            collection_info: Either a collection ID string or the collection info dictionary
             
         Returns:
             Nodata value if available, None otherwise
         """
-        # Try STAC format with item_assets
-        if "item_assets" in collection_info:
-            for asset_name, asset_info in collection_info["item_assets"].items():
-                if "raster:bands" in asset_info and asset_info["raster:bands"]:
-                    band = asset_info["raster:bands"][0]
-                    if "nodata" in band:
-                        return band["nodata"]
+        try:
+            # If we got a string (collection ID), get the info
+            if isinstance(collection_info, str):
+                stac_info = self.get_stac_info(collection_info)
+            else:
+                stac_info = collection_info
+            
+            # Try to get nodata from STAC info
+            if "summaries" in stac_info:
+                if "raster:bands" in stac_info["summaries"]:
+                    bands = stac_info["summaries"]["raster:bands"]
+                    if bands and "nodata" in bands[0]:
+                        return bands[0]["nodata"]
+            
+            return None
         
-        # Try BYOC STAC format with summaries
-        if "summaries" in collection_info and "raster:bands" in collection_info["summaries"]:
-            raster_bands = collection_info["summaries"]["raster:bands"]
-            if raster_bands and len(raster_bands) > 0:
-                # For simplicity, use the first band's nodata value
-                # In a more sophisticated implementation, we might want to handle multiple different nodata values
-                if "nodata" in raster_bands[0]:
-                    nodata_value = raster_bands[0]["nodata"]
-                    logger.debug(f"Found nodata value in STAC summaries: {nodata_value}")
-                    return nodata_value
-        
-        # Try BYOC format
-        if "data" in collection_info and "additionalData" in collection_info["data"]:
-            additional_data = collection_info["data"]["additionalData"]
-            if "bands" in additional_data:
-                bands = additional_data["bands"]
-                for band_name, band_data in bands.items():
-                    if "noData" in band_data:
-                        return band_data["noData"]
-        
-        logger.debug("No nodata value found in collection metadata")
-        return None 
+        except Exception as e:
+            logger.warning(f"Failed to get nodata value for collection {collection_info}: {e}")
+            return None 

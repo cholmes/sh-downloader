@@ -129,7 +129,7 @@ class BYOCAPI:
         elif not evalscript:
             # Fallback to default evalscript
             logger.debug("Using default evalscript")
-            evalscript = self.process_api._get_default_evalscript()
+            evalscript = self.process_api.get_default_evalscript()
         
         # Get available dates and metadata
         search_results = self.catalog_api.get_available_dates(
