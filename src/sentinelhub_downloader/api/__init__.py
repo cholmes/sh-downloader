@@ -147,4 +147,35 @@ class SentinelHubAPI:
         Returns:
             Nodata value if available, None otherwise
         """
-        return self.metadata.get_collection_nodata_value(collection_id) 
+        return self.metadata.get_collection_nodata_value(collection_id)
+
+    def search_images(
+        self,
+        collection: str,
+        time_interval: Tuple[datetime, datetime],
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+        byoc_id: Optional[str] = None,
+        limit: int = 100,
+        max_cloud_cover: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search for images in a collection.
+        
+        Args:
+            collection: Collection name (e.g., 'sentinel-2-l2a' or 'byoc')
+            time_interval: Tuple of (start_time, end_time) as datetime objects
+            bbox: Optional bounding box as (min_lon, min_lat, max_lon, max_lat)
+            byoc_id: BYOC collection ID (required when collection is 'byoc')
+            limit: Maximum number of results to return
+            max_cloud_cover: Maximum cloud cover percentage (0-100)
+            
+        Returns:
+            List of dictionaries containing image metadata
+        """
+        return self.catalog.search_images(
+            collection=collection,
+            time_interval=time_interval,
+            bbox=bbox,
+            byoc_id=byoc_id,
+            limit=limit,
+            max_cloud_cover=max_cloud_cover
+        ) 
